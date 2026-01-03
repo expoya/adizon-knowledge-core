@@ -1,8 +1,34 @@
+# =============================================================================
+# Adizon Knowledge Core - Root Railway Configuration
+# =============================================================================
+#
+# RAILWAY DEPLOYMENT GUIDE:
+# -------------------------
+# This project requires MULTIPLE Railway services. Deploy as follows:
+#
+# 1. BACKEND SERVICE:
+#    - Create new service from GitHub repo
+#    - Set Root Directory: /backend
+#    - Add PostgreSQL plugin (provides DATABASE_URL)
+#    - Set environment variables (see .env.example)
+#
+# 2. FRONTEND SERVICE:
+#    - Create new service from same GitHub repo
+#    - Set Root Directory: /frontend
+#    - Set build arg: VITE_API_URL = https://your-backend.railway.app/api/v1
+#
+# 3. EXTERNAL SERVICES NEEDED:
+#    - Neo4j: Use Neo4j Aura (cloud) or deploy as Docker service
+#    - MinIO: Use Railway's Object Storage or external S3/MinIO
+#
+# =============================================================================
+
+# Default: Backend service (if deploying from root)
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
+dockerfilePath = "backend/Dockerfile"
 
 [deploy]
-startCommand = "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"

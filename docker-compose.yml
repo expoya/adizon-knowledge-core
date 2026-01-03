@@ -1,13 +1,22 @@
+# =============================================================================
+# Adizon Knowledge Core - Docker Compose
+# Full stack deployment configuration
+# =============================================================================
+
 services:
+  # ---------------------------------------------------------------------------
+  # DATABASES
+  # ---------------------------------------------------------------------------
   postgres:
     image: pgvector/pgvector:pg17
     container_name: knowledge_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: knowledge_core
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,9 +28,11 @@ services:
   neo4j:
     image: neo4j:5.26.0
     container_name: knowledge_neo4j
+    restart: unless-stopped
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-password}
       NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
     ports:
       - "7474:7474"  # HTTP Browser
       - "7687:7687"  # Bolt Protocol
@@ -29,7 +40,7 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "password", "RETURN 1"]
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD:-password}", "RETURN 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -37,6 +48,7 @@ services:
   minio:
     image: minio/minio:latest
     container_name: knowledge_minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -52,9 +64,67 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---------------------------------------------------------------------------
+  # BACKEND (FastAPI)
+  # ---------------------------------------------------------------------------
+  backend:
+    build: ./backend
+    container_name: knowledge_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # App settings
+      APP_ENV: ${APP_ENV:-production}
+      APP_DEBUG: ${APP_DEBUG:-false}
+
+      # Database (use Docker service name)
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/knowledge_core
+
+      # Neo4j
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+
+      # MinIO
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_SECURE: "false"
+
+      # AI/Embeddings (REQUIRED - set in .env)
+      EMBEDDING_API_URL: ${EMBEDDING_API_URL}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-jina/jina-embeddings-v2-base-de}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-adizon-ministral}
+
+      # CORS - allow frontend
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:80,http://frontend}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # FRONTEND (React + Nginx)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
+    container_name: knowledge_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
   neo4j_data:
   neo4j_logs:
   minio_data:
-
