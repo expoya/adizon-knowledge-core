@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     app_debug: bool = Field(default=True, alias="APP_DEBUG")
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8000, alias="APP_PORT")
+    
+    # Public URL for callbacks (used by external services like ingestion worker)
+    public_url: str = Field(default="http://localhost:8000", alias="PUBLIC_URL")
 
     # -------------------------------------------------------------------------
     # CORS

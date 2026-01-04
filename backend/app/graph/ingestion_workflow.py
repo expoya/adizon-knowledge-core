@@ -43,9 +43,13 @@ async def run_ingestion_workflow(
     Raises:
         TrooperDispatchError: If the dispatch fails
     """
+    # Construct callback URL for status updates
+    callback_url = f"{settings.public_url}/api/v1/documents/{document_id}/status"
+    
     logger.info(f"Dispatching ingestion task to Trooper: {filename}")
     logger.info(f"   Document ID: {document_id}")
     logger.info(f"   Trooper URL: {settings.trooper_url}")
+    logger.info(f"   Callback URL: {callback_url}")
 
     # Build headers with optional auth token
     headers = {}
@@ -61,6 +65,7 @@ async def run_ingestion_workflow(
                     "document_id": document_id,
                     "storage_path": storage_path,
                     "filename": filename,
+                    "callback_url": callback_url,
                 },
                 headers=headers,
                 timeout=30.0,
