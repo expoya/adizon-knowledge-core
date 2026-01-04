@@ -76,15 +76,18 @@ async def process_document_background(
     """
     Background task to process document through ingestion workflow.
     """
+    print(f"🚀 [BACKGROUND] Starting ingestion for document {document_id} ({filename})")
     try:
         result = await run_ingestion_workflow(
             document_id=document_id,
             storage_path=storage_path,
             filename=filename,
         )
-        print(f"✓ Document {document_id} processed: {result.get('status')}")
+        print(f"✓ [BACKGROUND] Document {document_id} processed: {result.get('status')}")
     except Exception as e:
-        print(f"✗ Document {document_id} processing failed: {e}")
+        print(f"✗ [BACKGROUND] Document {document_id} processing failed: {e}")
+        import traceback
+        traceback.print_exc()
         # Error handling is done in the workflow's finalize node
 
 
@@ -173,6 +176,9 @@ async def upload_document(
 
     # Get the document ID as string for background task
     document_id = str(document.id)
+
+    # Commit the transaction BEFORE starting background task
+    await session.commit()
 
     # Schedule background processing
     background_tasks.add_task(
