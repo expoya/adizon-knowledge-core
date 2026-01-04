@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.db.session import async_session_maker
 from app.models.document import DocumentStatus, KnowledgeDocument
 from app.services.graph_store import get_graph_store_service
+from app.services.schema_factory import get_schema_factory
 from app.services.storage import get_minio_service
 from app.services.vector_store import get_vector_store_service
 
@@ -247,8 +248,9 @@ async def vector_node(state: IngestionState) -> dict:
 async def graph_node(state: IngestionState) -> dict:
     """
     Extract entities and relationships using LLM and store in Neo4j.
-    
-    Uses LLMGraphTransformer with the local Trooper/Ministral model.
+
+    Uses dynamic ontology-based structured output via SchemaFactory.
+    The ontology is loaded from YAML config, enabling multi-tenant support.
     Falls back gracefully if extraction fails - vectors are still indexed.
     """
     if state.get("error"):
@@ -258,38 +260,26 @@ async def graph_node(state: IngestionState) -> dict:
     relationships: List[dict] = []
 
     try:
-        # Import here to avoid import errors if langchain-experimental not installed
-        from langchain_experimental.graph_transformers import LLMGraphTransformer
-        
-        # Initialize LLM with Trooper endpoint
-        llm = get_llm()
-        
-        # Create graph transformer with flexible entity extraction
-        # The LLM can now propose ANY node types it finds relevant.
-        # Quality control happens in the Pending-Dashboard where users review nodes.
-        #
-        # We use node_properties to guide the LLM without restricting it.
-        graph_transformer = LLMGraphTransformer(
-            llm=llm,
-            # NO allowed_nodes/allowed_relationships - let the LLM be creative
-            # Quality filtering happens in the review dashboard
-            node_properties=["description"],  # Encourage adding descriptions
-            relationship_properties=["description"],
-            strict_mode=False,
-        )
+        # Load dynamic ontology from SchemaFactory
+        schema_factory = get_schema_factory()
+        ontology_config = schema_factory.load_config()
+        models = schema_factory.get_dynamic_models()
+        system_instruction = schema_factory.get_system_instruction()
 
-        # Additional guidance via the prompt (if the LLM supports system context)
-        # Note: LLMGraphTransformer uses its own prompt, but we log guidance for debugging
-        print("   📋 Graph extraction guidance:")
-        print("      - Core entities: Organization, Person, Product, Service, Location")
-        print("      - Structural entities: Process, Phase, Step, Argument, Strategy, Objection")
-        print("      - Avoid generic nodes like 'Text', 'Document', 'Content'")
-        
+        ExtractionResult = models["ExtractionResult"]
+
+        print(f"   📋 Ontology loaded: {ontology_config.domain_name}")
+        print(f"      - Node types: {', '.join(schema_factory.get_node_types())}")
+        print(f"      - Relationship types: {', '.join(schema_factory.get_relationship_types())}")
+
+        # Initialize LLM with structured output
+        llm = get_llm()
+        structured_llm = llm.with_structured_output(ExtractionResult)
+
         # Process chunks in batches to avoid overwhelming the LLM
-        # Take only first N chunks to avoid too many API calls
         max_chunks_for_graph = 5
         chunks_to_process = state["text_chunks"][:max_chunks_for_graph]
-        
+
         if not chunks_to_process:
             print("   ⚠️ No chunks to process for graph extraction")
             return {
@@ -297,38 +287,55 @@ async def graph_node(state: IngestionState) -> dict:
                 "relationships": [],
                 "status": "graph_skipped",
             }
-        
+
         print(f"   🔍 Extracting graph from {len(chunks_to_process)} chunks using {settings.llm_model_name}...")
-        
-        # Convert chunks to graph documents
-        graph_documents = graph_transformer.convert_to_graph_documents(chunks_to_process)
-        
-        # Extract entities and relationships from graph documents
+
+        # Process each chunk with the structured LLM
         seen_entities: set = set()
-        
-        for graph_doc in graph_documents:
-            # Process nodes
-            for node in graph_doc.nodes:
-                entity_key = f"{node.type}:{node.id}"
-                if entity_key not in seen_entities:
-                    seen_entities.add(entity_key)
-                    entities.append({
-                        "label": node.type,
-                        "name": node.id,
-                        "properties": node.properties if hasattr(node, 'properties') else {},
+
+        for i, chunk in enumerate(chunks_to_process):
+            try:
+                # Build the extraction prompt with ontology instructions
+                extraction_prompt = f"""{system_instruction}
+
+## Text to Analyze
+Extract all entities and relationships from the following text:
+
+---
+{chunk.page_content}
+---
+
+Return the extracted nodes and relationships in the specified JSON format.
+"""
+                # Call LLM with structured output
+                result = structured_llm.invoke(extraction_prompt)
+
+                # Process extracted nodes
+                for node in result.nodes:
+                    entity_key = f"{node.type}:{node.name}"
+                    if entity_key not in seen_entities:
+                        seen_entities.add(entity_key)
+                        entities.append({
+                            "label": node.type,
+                            "name": node.name,
+                            "properties": node.properties or {},
+                        })
+
+                # Process extracted relationships
+                for rel in result.relationships:
+                    relationships.append({
+                        "from_label": rel.source_type,
+                        "from_name": rel.source_name,
+                        "to_label": rel.target_type,
+                        "to_name": rel.target_name,
+                        "type": rel.type,
+                        "properties": rel.properties or {},
                     })
-            
-            # Process relationships
-            for rel in graph_doc.relationships:
-                relationships.append({
-                    "from_label": rel.source.type,
-                    "from_name": rel.source.id,
-                    "to_label": rel.target.type,
-                    "to_name": rel.target.id,
-                    "type": rel.type.replace(" ", "_").upper(),
-                    "properties": rel.properties if hasattr(rel, 'properties') else {},
-                })
-        
+
+            except Exception as chunk_error:
+                print(f"   ⚠️ Chunk {i+1} extraction failed: {chunk_error}")
+                continue
+
         # Store in Neo4j if we found entities (with PENDING status for review)
         if entities or relationships:
             graph_store = get_graph_store_service()
@@ -348,9 +355,9 @@ async def graph_node(state: IngestionState) -> dict:
             "status": "graph_extracted",
         }
 
-    except ImportError as e:
-        # langchain-experimental not installed
-        print(f"   ⚠️ Graph extraction unavailable (missing dependency): {e}")
+    except FileNotFoundError as e:
+        # Ontology config not found
+        print(f"   ⚠️ Ontology config not found: {e}")
         return {
             "entities": [],
             "relationships": [],

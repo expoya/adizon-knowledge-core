@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # Ontology Configuration (Multi-Tenant Support)
+    # -------------------------------------------------------------------------
+    ontology_path: str = Field(
+        default="app/config/ontology_voltage.yaml",
+        alias="ONTOLOGY_PATH",
+    )
+
+    # -------------------------------------------------------------------------
     # OpenAI (optional, legacy)
     # -------------------------------------------------------------------------
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
