@@ -323,6 +323,19 @@ async def reprocess_document(
     )
 
 
+class StatusUpdateRequest(BaseModel):
+    """Request model for status updates from Trooper Worker."""
+    status: str
+    error_message: str | None = None
+
+
+class StatusUpdateResponse(BaseModel):
+    """Response model for status update confirmation."""
+    document_id: str
+    status: str
+    message: str
+
+
 class DeleteDocumentResponse(BaseModel):
     """Response model for document deletion."""
     id: str
@@ -331,6 +344,69 @@ class DeleteDocumentResponse(BaseModel):
     graph_nodes_deleted: int
     storage_deleted: bool
     message: str
+
+
+@router.post("/documents/{document_id}/status", response_model=StatusUpdateResponse)
+async def update_document_status(
+    document_id: str,
+    request: StatusUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> StatusUpdateResponse:
+    """
+    Update document status (callback from Trooper Worker).
+
+    This endpoint is called by the Trooper Worker when document processing
+    completes or fails. It updates the document status in the database.
+
+    Args:
+        document_id: UUID of the document
+        request: StatusUpdateRequest with new status and optional error message
+
+    Returns:
+        StatusUpdateResponse confirming the update
+    """
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid document ID format",
+        )
+
+    result = await session.execute(
+        select(KnowledgeDocument).where(KnowledgeDocument.id == doc_uuid)
+    )
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document with ID {document_id} not found",
+        )
+
+    # Map status string to enum
+    status_map = {
+        "INDEXED": DocumentStatus.INDEXED,
+        "ERROR": DocumentStatus.ERROR,
+        "PENDING": DocumentStatus.PENDING,
+    }
+
+    new_status = status_map.get(request.status.upper())
+    if not new_status:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status: {request.status}. Must be one of: INDEXED, ERROR, PENDING",
+        )
+
+    document.status = new_status
+    document.error_message = request.error_message
+    await session.commit()
+
+    return StatusUpdateResponse(
+        document_id=document_id,
+        status=new_status.value,
+        message=f"Document status updated to {new_status.value}",
+    )
 
 
 @router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
