@@ -4,6 +4,51 @@
 
 **Adizon Knowledge Core** ist ein Sovereign AI RAG-System (Retrieval-Augmented Generation) mit integrierter Knowledge Graph Funktionalität. Es kombiniert semantische Vektorsuche mit struktureller Graph-Abfrage für intelligente Dokumenten-Q&A mit Entity-Extraktion.
 
+## System Architecture
+
+```mermaid
+graph TB
+    subgraph Client["Client Layer"]
+        FE[React Frontend<br/>Port 5173/80]
+    end
+
+    subgraph API["API Layer"]
+        BE[FastAPI Backend<br/>Port 8000]
+    end
+
+    subgraph Worker["Processing Layer"]
+        TW[Trooper Worker<br/>Port 8001<br/>LangGraph Pipeline]
+    end
+
+    subgraph Storage["Data Layer"]
+        PG[(PostgreSQL<br/>+ pgvector)]
+        NEO[(Neo4j<br/>Knowledge Graph)]
+        MINIO[(MinIO<br/>S3 Storage)]
+    end
+
+    subgraph AI["AI Services"]
+        EMB[Jina Embeddings<br/>German]
+        LLM[Trooper/Ministral<br/>Self-hosted]
+    end
+
+    FE <-->|HTTP/REST| BE
+    BE -->|POST /ingest| TW
+    TW -->|Callback| BE
+
+    BE --> PG
+    BE --> NEO
+    BE --> MINIO
+
+    TW --> PG
+    TW --> NEO
+    TW --> MINIO
+    TW --> EMB
+    TW --> LLM
+
+    BE --> EMB
+    BE --> LLM
+```
+
 ## Tech Stack
 
 | Komponente | Technologie |
@@ -52,66 +97,113 @@ adizon-knowledge-core/
 
 ## Datenfluss
 
-### 1. Document Upload
+### Document Upload Flow
 
-```
-Frontend → POST /api/v1/upload → Backend
-    ↓
-SHA-256 Hash berechnen → Deduplizierung prüfen
-    ↓
-MinIO Upload → PostgreSQL Record (status=PENDING)
-    ↓
-HTTP POST → Trooper Worker /ingest
-    ↓
-Sofortige Response an Frontend
-```
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant BE as Backend
+    participant MINIO as MinIO
+    participant PG as PostgreSQL
+    participant TW as Trooper Worker
 
-### 2. Document Processing (Trooper Worker)
-
-```
-Load (MinIO) → Split (Chunks) → Vector (PGVector) → Graph (Neo4j) → Finalize
-    ↓              ↓                 ↓                  ↓              ↓
-PDF/DOCX     3000 chars      Jina Embeddings    LLM Extraction   Callback
-Sanitize     300 overlap     document_id        PENDING status   → Backend
-```
-
-### 3. Chat Query (Hybrid RAG)
-
-```
-Frontend → POST /api/v1/chat → Backend
-    ↓
-Vector Search (PGVector, k=5, threshold=0.8)
-    +
-Graph Search (Neo4j Cypher, APPROVED nodes)
-    ↓
-LLM (ChatOpenAI) mit kombiniertem Kontext
-    ↓
-Response mit Answer + Sources + Graph Context
+    FE->>BE: POST /api/v1/upload
+    BE->>BE: SHA-256 Hash berechnen
+    BE->>PG: Deduplizierung prüfen
+    alt Duplicate
+        PG-->>BE: Existing document
+        BE-->>FE: 409 Conflict
+    else New Document
+        BE->>MINIO: Upload File
+        BE->>PG: INSERT (status=PENDING)
+        BE->>TW: POST /ingest
+        TW-->>BE: 202 Accepted
+        BE-->>FE: 201 Created
+    end
 ```
 
-## Microservices Architektur
+### Document Processing Pipeline
 
+```mermaid
+graph LR
+    subgraph TW["Trooper Worker - LangGraph"]
+        LOAD[Load<br/>MinIO] --> SPLIT[Split<br/>Chunks]
+        SPLIT --> VECTOR[Vector<br/>PGVector]
+        VECTOR --> GRAPH[Graph<br/>Neo4j]
+        GRAPH --> FINAL[Finalize<br/>Callback]
+    end
+
+    LOAD -.->|PDF/DOCX<br/>Sanitize| SPLIT
+    SPLIT -.->|3000 chars<br/>300 overlap| VECTOR
+    VECTOR -.->|Jina Embeddings<br/>document_id| GRAPH
+    GRAPH -.->|LLM Extraction<br/>PENDING status| FINAL
+    FINAL -.->|HTTP Callback| BE[Backend]
 ```
-┌─────────────┐     HTTP      ┌──────────────────┐
-│   Frontend  │◄────────────► │     Backend      │
-│  (React)    │               │    (FastAPI)     │
-└─────────────┘               └────────┬─────────┘
-                                       │
-                    ┌──────────────────┼──────────────────┐
-                    │                  │                  │
-                    ▼                  ▼                  ▼
-            ┌───────────┐      ┌───────────┐      ┌───────────┐
-            │ PostgreSQL│      │   Neo4j   │      │   MinIO   │
-            │ (pgvector)│      │  (Graph)  │      │   (S3)    │
-            └───────────┘      └───────────┘      └───────────┘
-                    ▲                  ▲                  ▲
-                    │                  │                  │
-                    └──────────────────┼──────────────────┘
-                                       │
-                              ┌────────┴─────────┐
-                              │  Trooper Worker  │
-                              │   (LangGraph)    │
-                              └──────────────────┘
+
+### Chat Query Flow (Hybrid RAG)
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant BE as Backend
+    participant PG as PostgreSQL<br/>+ pgvector
+    participant NEO as Neo4j
+    participant LLM as LLM
+
+    FE->>BE: POST /api/v1/chat
+
+    par Vector Search
+        BE->>PG: Similarity Search<br/>k=5, threshold=0.8
+        PG-->>BE: Relevant Chunks
+    and Graph Search
+        BE->>NEO: Cypher Query<br/>APPROVED nodes
+        NEO-->>BE: Graph Context
+    end
+
+    BE->>BE: Merge Context
+    BE->>LLM: Generate Response
+    LLM-->>BE: Answer
+    BE-->>FE: Response + Sources + Graph
+```
+
+## Microservices Architecture
+
+```mermaid
+graph TB
+    subgraph External["External Access"]
+        USER((User))
+    end
+
+    subgraph Frontend["Frontend Container"]
+        REACT[React App<br/>Nginx]
+    end
+
+    subgraph Backend["Backend Container"]
+        FASTAPI[FastAPI<br/>Async Python]
+    end
+
+    subgraph Worker["Worker Container"]
+        LANGGRAPH[LangGraph<br/>Pipeline]
+    end
+
+    subgraph Databases["Database Containers"]
+        POSTGRES[(PostgreSQL<br/>pgvector)]
+        NEO4J[(Neo4j<br/>Graph DB)]
+        MINIO[(MinIO<br/>Object Store)]
+    end
+
+    USER --> REACT
+    REACT <--> FASTAPI
+    FASTAPI --> LANGGRAPH
+    LANGGRAPH --> FASTAPI
+
+    FASTAPI --> POSTGRES
+    FASTAPI --> NEO4J
+    FASTAPI --> MINIO
+
+    LANGGRAPH --> POSTGRES
+    LANGGRAPH --> NEO4J
+    LANGGRAPH --> MINIO
 ```
 
 ## Datenbank Schemas
@@ -129,17 +221,34 @@ Response mit Answer + Sources + Graph Context
 | error_message | TEXT | Fehlermeldung |
 | created_at | TIMESTAMP | Erstellungsdatum |
 
-### Neo4j (Dynamic Labels)
+### Neo4j Schema
 
-**Node Labels** (aus Ontology): ORGANIZATION, PERSON, DEAL, PROJECT, PRODUCT, LOCATION
+```mermaid
+graph LR
+    subgraph Nodes["Node Labels (Ontology)"]
+        ORG[ORGANIZATION]
+        PER[PERSON]
+        DEAL[DEAL]
+        PROJ[PROJECT]
+        PROD[PRODUCT]
+        LOC[LOCATION]
+    end
+
+    PER -->|WORKS_FOR| ORG
+    ORG -->|HAS_DEAL| DEAL
+    DEAL -->|INVOLVES_PRODUCT| PROD
+    ORG -->|LOCATED_AT| LOC
+    PER -->|CONTACT_FOR| DEAL
+    PROD -->|PART_OF_PROJECT| PROJ
+    ORG -->|SUPPLIES| ORG
+    PER -->|MANAGES| PROJ
+```
 
 **Node Properties:**
 - `name` (Merge Key)
 - `status` (PENDING / APPROVED)
 - `source_document_id`, `source_file`
 - `created_at`, `updated_at`, `approved_at`
-
-**Relationships:** WORKS_FOR, HAS_DEAL, INVOLVES_PRODUCT, LOCATED_AT, etc.
 
 ## API Endpoints
 
@@ -215,6 +324,26 @@ ONTOLOGY_PATH
 ```
 
 ## Error Handling
+
+```mermaid
+flowchart TD
+    START[Document Processing] --> LOAD{Load OK?}
+    LOAD -->|Yes| SPLIT{Split OK?}
+    LOAD -->|No| ERR1[Status: ERROR<br/>error_message set]
+
+    SPLIT -->|Yes| VEC{Vector OK?}
+    SPLIT -->|No| ERR2[Status: ERROR]
+
+    VEC -->|Yes| GRAPH{Graph OK?}
+    VEC -->|No| ERR3[Status: ERROR]
+
+    GRAPH -->|Yes| SUCCESS[Status: INDEXED]
+    GRAPH -->|No| PARTIAL[Status: INDEXED<br/>Graph skipped<br/>non-fatal]
+
+    ERR1 --> RETRY[Reprocess Endpoint<br/>available]
+    ERR2 --> RETRY
+    ERR3 --> RETRY
+```
 
 1. **Document Processing Fehler:**
    - Status wird auf ERROR gesetzt

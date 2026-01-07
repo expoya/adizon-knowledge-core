@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",")]
 
     # -------------------------------------------------------------------------
-    # PostgreSQL + pgvector
+    # PostgreSQL + pgvector (Internal - for backend's own DB access)
     # -------------------------------------------------------------------------
     postgres_host: str = Field(default="localhost", alias="POSTGRES_HOST")
     postgres_port: int = Field(default=5433, alias="POSTGRES_PORT")
@@ -72,20 +72,73 @@ class Settings(BaseSettings):
         )
 
     # -------------------------------------------------------------------------
-    # Neo4j
+    # Neo4j (Internal - for backend's own access)
     # -------------------------------------------------------------------------
     neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI")
     neo4j_user: str = Field(default="neo4j", alias="NEO4J_USER")
     neo4j_password: str = Field(default="password", alias="NEO4J_PASSWORD")
 
     # -------------------------------------------------------------------------
-    # MinIO / S3
+    # MinIO / S3 (Internal - for backend's own access)
     # -------------------------------------------------------------------------
     minio_endpoint: str = Field(default="localhost:9000", alias="MINIO_ENDPOINT")
     minio_access_key: str = Field(default="minioadmin", alias="MINIO_ACCESS_KEY")
     minio_secret_key: str = Field(default="minioadmin", alias="MINIO_SECRET_KEY")
     minio_bucket_name: str = Field(default="knowledge-documents", alias="MINIO_BUCKET_NAME")
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
+
+    # -------------------------------------------------------------------------
+    # Worker Connection Settings (Public URLs for external Worker access)
+    # These are the URLs the Trooper Worker uses to connect to services.
+    # If not set, falls back to internal URLs (works for local dev).
+    # -------------------------------------------------------------------------
+    # PostgreSQL - Public URL for Worker
+    worker_postgres_host: str | None = Field(default=None, alias="WORKER_POSTGRES_HOST")
+    worker_postgres_port: int | None = Field(default=None, alias="WORKER_POSTGRES_PORT")
+    worker_postgres_db: str | None = Field(default=None, alias="WORKER_POSTGRES_DB")
+    worker_postgres_user: str | None = Field(default=None, alias="WORKER_POSTGRES_USER")
+    worker_postgres_password: str | None = Field(default=None, alias="WORKER_POSTGRES_PASSWORD")
+
+    # Neo4j - Public URL for Worker
+    worker_neo4j_uri: str | None = Field(default=None, alias="WORKER_NEO4J_URI")
+    worker_neo4j_user: str | None = Field(default=None, alias="WORKER_NEO4J_USER")
+    worker_neo4j_password: str | None = Field(default=None, alias="WORKER_NEO4J_PASSWORD")
+
+    # MinIO - Public URL for Worker
+    worker_minio_endpoint: str | None = Field(default=None, alias="WORKER_MINIO_ENDPOINT")
+    worker_minio_access_key: str | None = Field(default=None, alias="WORKER_MINIO_ACCESS_KEY")
+    worker_minio_secret_key: str | None = Field(default=None, alias="WORKER_MINIO_SECRET_KEY")
+    worker_minio_bucket_name: str | None = Field(default=None, alias="WORKER_MINIO_BUCKET_NAME")
+    worker_minio_secure: bool | None = Field(default=None, alias="WORKER_MINIO_SECURE")
+
+    # Helper methods to get Worker configs (with fallback to internal)
+    def get_worker_postgres_config(self) -> dict:
+        """Get PostgreSQL config for Worker (public URLs with fallback to internal)."""
+        return {
+            "host": self.worker_postgres_host or self.postgres_host,
+            "port": self.worker_postgres_port or self.postgres_port,
+            "database": self.worker_postgres_db or self.postgres_db,
+            "user": self.worker_postgres_user or self.postgres_user,
+            "password": self.worker_postgres_password or self.postgres_password,
+        }
+
+    def get_worker_neo4j_config(self) -> dict:
+        """Get Neo4j config for Worker (public URLs with fallback to internal)."""
+        return {
+            "uri": self.worker_neo4j_uri or self.neo4j_uri,
+            "user": self.worker_neo4j_user or self.neo4j_user,
+            "password": self.worker_neo4j_password or self.neo4j_password,
+        }
+
+    def get_worker_minio_config(self) -> dict:
+        """Get MinIO config for Worker (public URLs with fallback to internal)."""
+        return {
+            "endpoint": self.worker_minio_endpoint or self.minio_endpoint,
+            "access_key": self.worker_minio_access_key or self.minio_access_key,
+            "secret_key": self.worker_minio_secret_key or self.minio_secret_key,
+            "bucket_name": self.worker_minio_bucket_name or self.minio_bucket_name,
+            "secure": self.worker_minio_secure if self.worker_minio_secure is not None else self.minio_secure,
+        }
 
     # -------------------------------------------------------------------------
     # AI API (OpenAI-compatible endpoint, e.g., Trooper)
