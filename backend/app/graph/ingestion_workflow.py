@@ -94,9 +94,25 @@ async def run_ingestion_workflow(
     # Construct callback URL for status updates
     callback_url = f"{settings.public_url}/api/v1/documents/{document_id}/status"
 
+    # Build the full request URL
+    request_url = f"{settings.trooper_url}/ingest"
+
+    # Use print for immediate visibility (logger might be buffered)
+    print(f"=" * 60)
+    print(f"TROOPER DISPATCH DEBUG")
+    print(f"=" * 60)
+    print(f"  Filename: {filename}")
+    print(f"  Document ID: {document_id}")
+    print(f"  TROOPER_URL env: {settings.trooper_url}")
+    print(f"  Full request URL: {request_url}")
+    print(f"  Callback URL: {callback_url}")
+    print(f"  Auth token set: {bool(settings.trooper_auth_token)}")
+    print(f"=" * 60)
+
     logger.info(f"Dispatching ingestion task to Trooper: {filename}")
     logger.info(f"   Document ID: {document_id}")
     logger.info(f"   Trooper URL: {settings.trooper_url}")
+    logger.info(f"   Full Request URL: {request_url}")
     logger.info(f"   Callback URL: {callback_url}")
 
     # Build headers with optional auth token
@@ -175,13 +191,15 @@ async def run_ingestion_workflow(
     logger.info(f"       - API Key: {mask_secret(settings.embedding_api_key)}")
 
     try:
+        print(f"  >> Sending POST to: {request_url}")
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{settings.trooper_url}/ingest",
+                request_url,
                 json=payload,
                 headers=headers,
                 timeout=30.0,
             )
+            print(f"  << Response status: {response.status_code}")
 
             if response.status_code == 200:
                 result = response.json()
