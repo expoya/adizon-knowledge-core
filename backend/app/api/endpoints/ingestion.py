@@ -3,9 +3,11 @@ Document Ingestion API Endpoint.
 
 Handles file uploads with deduplication, storage to MinIO,
 and triggers background processing workflow.
+Also includes CRM synchronization endpoint.
 """
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -26,11 +28,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_async_session
 from app.graph.ingestion_workflow import run_ingestion_workflow
 from app.models.document import DocumentStatus, KnowledgeDocument
+from app.services.crm_factory import get_crm_provider, is_crm_available
 from app.services.graph_store import GraphStoreService, get_graph_store_service
 from app.services.storage import MinioService, get_minio_service
 from app.services.vector_store import VectorStoreService, get_vector_store_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class DocumentResponse(BaseModel):
@@ -50,89 +54,49 @@ class DocumentResponse(BaseModel):
         from_attributes = True
 
 
-def compute_file_hash(content: bytes) -> str:
-    """Compute SHA-256 hash of file content."""
-    return hashlib.sha256(content).hexdigest()
-
-
-def generate_storage_path(filename: str) -> str:
-    """
-    Generate a unique storage path for the file.
+class CRMSyncResponse(BaseModel):
+    """Response model for CRM sync operations."""
     
-    Format: raw/{year}/{month}/{uuid}_{filename}
-    """
-    now = datetime.utcnow()
-    unique_id = uuid.uuid4().hex[:8]
-    # Sanitize filename (remove path separators)
-    safe_filename = filename.replace("/", "_").replace("\\", "_")
-    return f"raw/{now.year}/{now.month:02d}/{unique_id}_{safe_filename}"
-
-
-async def process_document_background(
-    document_id: str,
-    storage_path: str,
-    filename: str,
-) -> None:
-    """
-    Background task to process document through ingestion workflow.
-    """
-    print(f"🚀 [BACKGROUND] Starting ingestion for document {document_id} ({filename})")
-    try:
-        result = await run_ingestion_workflow(
-            document_id=document_id,
-            storage_path=storage_path,
-            filename=filename,
-        )
-        print(f"✓ [BACKGROUND] Document {document_id} processed: {result.get('status')}")
-    except Exception as e:
-        print(f"✗ [BACKGROUND] Document {document_id} processing failed: {e}")
-        import traceback
-        traceback.print_exc()
-        # Error handling is done in the workflow's finalize node
+    status: str
+    entities_synced: int
+    entities_created: int
+    entities_updated: int
+    entity_types: list[str]
+    message: str
+    errors: list[str] = []
 
 
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
-    file: Annotated[UploadFile, File(description="Document file to upload")],
+    file: Annotated[UploadFile, File(description="Document to upload (PDF, DOCX, TXT)")],
+    background_tasks: BackgroundTasks,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     minio: Annotated[MinioService, Depends(get_minio_service)],
-    background_tasks: BackgroundTasks,
 ) -> DocumentResponse:
     """
     Upload a document for processing.
     
-    The upload process:
-    1. Read file content and compute SHA-256 hash
-    2. Check if document with same hash already exists (deduplication)
-       - If YES: Return existing document without re-uploading
-       - If NO: Upload to MinIO and save metadata to Postgres
-    3. Trigger background ingestion workflow
-    4. Return document metadata immediately
-    
-    Duplicate documents are detected by content hash and not re-uploaded.
+    Process:
+    1. Calculate SHA-256 hash for deduplication
+    2. Check if document already exists
+    3. Upload to MinIO
+    4. Create database record
+    5. Trigger background processing workflow
     """
     # Read file content
     content = await file.read()
-    
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Empty file uploaded",
-        )
-
     file_size = len(content)
     
-    # Compute SHA-256 hash for deduplication
-    content_hash = compute_file_hash(content)
-
-    # Check for existing document with same hash
-    existing_query = await session.execute(
+    # Calculate content hash for deduplication
+    content_hash = hashlib.sha256(content).hexdigest()
+    
+    # Check for duplicates
+    result = await session.execute(
         select(KnowledgeDocument).where(KnowledgeDocument.content_hash == content_hash)
     )
-    existing_doc = existing_query.scalar_one_or_none()
-
+    existing_doc = result.scalar_one_or_none()
+    
     if existing_doc:
-        # Document already exists - return it without re-uploading
         return DocumentResponse(
             id=str(existing_doc.id),
             filename=existing_doc.filename,
@@ -142,85 +106,64 @@ async def upload_document(
             status=existing_doc.status.value,
             created_at=existing_doc.created_at.isoformat(),
             is_duplicate=True,
-            message="Document with identical content already exists",
+            message="Document already exists (duplicate detected by content hash)",
         )
-
-    # Generate storage path
-    filename = file.filename or "unknown"
-    storage_path = generate_storage_path(filename)
-
+    
+    # Generate unique ID and storage path
+    doc_id = uuid.uuid4()
+    storage_path = f"documents/{doc_id}/{file.filename}"
+    
     # Upload to MinIO
     try:
-        await minio.upload_bytes(
-            content=content,
-            object_name=storage_path,
-            content_type=file.content_type or "application/octet-stream",
-            filename=filename,
-        )
+        await minio.upload_file(storage_path, content)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload to storage: {str(e)}",
+            detail=f"Failed to upload file to storage: {str(e)}",
         )
-
-    # Create database record with PENDING status
+    
+    # Create database record
     document = KnowledgeDocument(
-        filename=filename,
+        id=doc_id,
+        filename=file.filename or "unknown",
         content_hash=content_hash,
         file_size=file_size,
         storage_path=storage_path,
         status=DocumentStatus.PENDING,
     )
+    
     session.add(document)
-    await session.flush()  # Get the generated ID
-
-    # Get the document ID as string for background task
-    document_id = str(document.id)
-
-    # Commit the transaction BEFORE starting background task
     await session.commit()
-
-    # Schedule background processing
+    await session.refresh(document)
+    
+    # Trigger background processing
     background_tasks.add_task(
-        process_document_background,
-        document_id=document_id,
+        run_ingestion_workflow,
+        document_id=str(doc_id),
         storage_path=storage_path,
-        filename=filename,
+        filename=file.filename or "unknown",
     )
-
+    
     return DocumentResponse(
-        id=document_id,
+        id=str(document.id),
         filename=document.filename,
         content_hash=document.content_hash,
         file_size=document.file_size,
         storage_path=document.storage_path,
         status=document.status.value,
         created_at=document.created_at.isoformat(),
-        is_duplicate=False,
-        message="Document uploaded. Processing started in background.",
+        message="Document uploaded successfully. Processing started.",
     )
 
 
 @router.get("/documents", response_model=list[DocumentResponse])
 async def list_documents(
     session: Annotated[AsyncSession, Depends(get_async_session)],
-    status_filter: DocumentStatus | None = None,
-    limit: int = 100,
-    offset: int = 0,
 ) -> list[DocumentResponse]:
-    """
-    List all documents with optional status filter.
-    """
-    query = select(KnowledgeDocument).order_by(KnowledgeDocument.created_at.desc())
-    
-    if status_filter:
-        query = query.where(KnowledgeDocument.status == status_filter)
-    
-    query = query.limit(limit).offset(offset)
-    
-    result = await session.execute(query)
+    """List all documents."""
+    result = await session.execute(select(KnowledgeDocument))
     documents = result.scalars().all()
-
+    
     return [
         DocumentResponse(
             id=str(doc.id),
@@ -240,83 +183,18 @@ async def get_document(
     document_id: str,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> DocumentResponse:
-    """
-    Get a single document by ID.
-    """
-    try:
-        doc_uuid = uuid.UUID(document_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid document ID format",
-        )
-
+    """Get a specific document by ID."""
     result = await session.execute(
-        select(KnowledgeDocument).where(KnowledgeDocument.id == doc_uuid)
+        select(KnowledgeDocument).where(KnowledgeDocument.id == uuid.UUID(document_id))
     )
     document = result.scalar_one_or_none()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document with ID {document_id} not found",
-        )
-
-    return DocumentResponse(
-        id=str(document.id),
-        filename=document.filename,
-        content_hash=document.content_hash,
-        file_size=document.file_size,
-        storage_path=document.storage_path,
-        status=document.status.value,
-        created_at=document.created_at.isoformat(),
-        message=document.error_message,
-    )
-
-
-@router.post("/documents/{document_id}/reprocess", response_model=DocumentResponse)
-async def reprocess_document(
-    document_id: str,
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-    background_tasks: BackgroundTasks,
-) -> DocumentResponse:
-    """
-    Trigger reprocessing of an existing document.
     
-    Useful for documents that failed or need re-indexing.
-    """
-    try:
-        doc_uuid = uuid.UUID(document_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid document ID format",
-        )
-
-    result = await session.execute(
-        select(KnowledgeDocument).where(KnowledgeDocument.id == doc_uuid)
-    )
-    document = result.scalar_one_or_none()
-
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document with ID {document_id} not found",
+            detail=f"Document {document_id} not found",
         )
-
-    # Reset status to PENDING
-    document.status = DocumentStatus.PENDING
-    document.error_message = None
-    await session.flush()
-
-    # Schedule background processing
-    background_tasks.add_task(
-        process_document_background,
-        document_id=str(document.id),
-        storage_path=document.storage_path,
-        filename=document.filename,
-    )
-
+    
     return DocumentResponse(
         id=str(document.id),
         filename=document.filename,
@@ -325,168 +203,253 @@ async def reprocess_document(
         storage_path=document.storage_path,
         status=document.status.value,
         created_at=document.created_at.isoformat(),
-        message="Reprocessing started in background.",
     )
 
 
-class StatusUpdateRequest(BaseModel):
-    """Request model for status updates from Trooper Worker."""
-    status: str
-    error_message: str | None = None
-
-
-class StatusUpdateResponse(BaseModel):
-    """Response model for status update confirmation."""
-    document_id: str
-    status: str
-    message: str
-
-
-class DeleteDocumentResponse(BaseModel):
-    """Response model for document deletion."""
-    id: str
-    filename: str
-    vectors_deleted: bool
-    graph_nodes_deleted: int
-    storage_deleted: bool
-    message: str
-
-
-@router.post("/documents/{document_id}/status", response_model=StatusUpdateResponse)
-async def update_document_status(
-    document_id: str,
-    request: StatusUpdateRequest,
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> StatusUpdateResponse:
-    """
-    Update document status (callback from Trooper Worker).
-
-    This endpoint is called by the Trooper Worker when document processing
-    completes or fails. It updates the document status in the database.
-
-    Args:
-        document_id: UUID of the document
-        request: StatusUpdateRequest with new status and optional error message
-
-    Returns:
-        StatusUpdateResponse confirming the update
-    """
-    try:
-        doc_uuid = uuid.UUID(document_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid document ID format",
-        )
-
-    result = await session.execute(
-        select(KnowledgeDocument).where(KnowledgeDocument.id == doc_uuid)
-    )
-    document = result.scalar_one_or_none()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document with ID {document_id} not found",
-        )
-
-    # Map status string to enum
-    status_map = {
-        "INDEXED": DocumentStatus.INDEXED,
-        "ERROR": DocumentStatus.ERROR,
-        "PENDING": DocumentStatus.PENDING,
-    }
-
-    new_status = status_map.get(request.status.upper())
-    if not new_status:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid status: {request.status}. Must be one of: INDEXED, ERROR, PENDING",
-        )
-
-    document.status = new_status
-    document.error_message = request.error_message
-    await session.commit()
-
-    return StatusUpdateResponse(
-        document_id=document_id,
-        status=new_status.value,
-        message=f"Document status updated to {new_status.value}",
-    )
-
-
-@router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
+@router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: str,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     minio: Annotated[MinioService, Depends(get_minio_service)],
     vector_store: Annotated[VectorStoreService, Depends(get_vector_store_service)],
     graph_store: Annotated[GraphStoreService, Depends(get_graph_store_service)],
-) -> DeleteDocumentResponse:
+):
     """
     Delete a document and all associated data.
-
-    This removes:
-    1. Vector embeddings from PGVector
-    2. Graph nodes from Neo4j
-    3. File from MinIO storage
-    4. Metadata from PostgreSQL
+    
+    Removes:
+    - Document record from PostgreSQL
+    - File from MinIO
+    - Vector embeddings from pgvector
+    - Graph nodes from Neo4j
     """
-    try:
-        doc_uuid = uuid.UUID(document_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid document ID format",
-        )
-
-    # Get document from database
+    # Get document
     result = await session.execute(
-        select(KnowledgeDocument).where(KnowledgeDocument.id == doc_uuid)
+        select(KnowledgeDocument).where(KnowledgeDocument.id == uuid.UUID(document_id))
     )
     document = result.scalar_one_or_none()
-
+    
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document with ID {document_id} not found",
+            detail=f"Document {document_id} not found",
         )
-
-    filename = document.filename
-    storage_path = document.storage_path
-
-    # 1. Delete vectors from PGVector
-    vectors_deleted = False
+    
+    # Delete from MinIO
     try:
-        await vector_store.delete_by_filename(filename)
-        vectors_deleted = True
+        await minio.delete_file(document.storage_path)
     except Exception as e:
-        print(f"Warning: Failed to delete vectors for {filename}: {e}")
-
-    # 2. Delete graph nodes from Neo4j
-    graph_nodes_deleted = 0
+        # Log but don't fail if file doesn't exist
+        print(f"Warning: Could not delete file from MinIO: {e}")
+    
+    # Delete from vector store
     try:
-        graph_nodes_deleted = await graph_store.delete_by_document_id(document_id)
+        await vector_store.delete_by_document_id(document_id)
     except Exception as e:
-        print(f"Warning: Failed to delete graph nodes for {filename}: {e}")
-
-    # 3. Delete file from MinIO
-    storage_deleted = False
+        print(f"Warning: Could not delete vectors: {e}")
+    
+    # Delete from graph store
     try:
-        await minio.delete_file(storage_path)
-        storage_deleted = True
+        await graph_store.delete_by_document_id(document_id)
     except Exception as e:
-        print(f"Warning: Failed to delete file from storage: {e}")
-
-    # 4. Delete metadata from PostgreSQL
+        print(f"Warning: Could not delete graph nodes: {e}")
+    
+    # Delete from database
     await session.delete(document)
     await session.commit()
 
-    return DeleteDocumentResponse(
-        id=document_id,
-        filename=filename,
-        vectors_deleted=vectors_deleted,
-        graph_nodes_deleted=graph_nodes_deleted,
-        storage_deleted=storage_deleted,
-        message=f"Document '{filename}' and associated data deleted successfully.",
+
+@router.post("/documents/{document_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
+async def reprocess_document(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+):
+    """
+    Reprocess a document.
+    
+    Useful when:
+    - Processing failed
+    - Ontology was updated
+    - Want to re-extract entities
+    """
+    # Get document
+    result = await session.execute(
+        select(KnowledgeDocument).where(KnowledgeDocument.id == uuid.UUID(document_id))
     )
+    document = result.scalar_one_or_none()
+    
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {document_id} not found",
+        )
+    
+    # Update status
+    document.status = DocumentStatus.PENDING
+    document.error_message = None
+    await session.commit()
+    
+    # Trigger background processing
+    background_tasks.add_task(
+        run_ingestion_workflow,
+        document_id=document_id,
+        storage_path=document.storage_path,
+        filename=document.filename,
+    )
+    
+    return {"message": "Document reprocessing started", "document_id": document_id}
+
+
+@router.post("/crm-sync", response_model=CRMSyncResponse)
+async def sync_crm_entities(
+    entity_types: list[str] | None = None,
+    graph_store: Annotated[GraphStoreService, Depends(get_graph_store_service)],
+) -> CRMSyncResponse:
+    """
+    Synchronisiert CRM-Entities in den Knowledge Graph.
+    
+    Holt Stammdaten aus dem CRM (z.B. Zoho) und erstellt/aktualisiert
+    Nodes im Neo4j Graph. Dies ist der Trigger für nächtliche Syncs.
+    
+    Args:
+        entity_types: Liste der zu synchronisierenden Entity-Typen.
+                     Default: ["Users", "Accounts", "Contacts", "Leads"]
+    
+    Returns:
+        CRMSyncResponse mit Statistiken
+        
+    Example:
+        POST /api/v1/ingestion/crm-sync
+        {
+            "entity_types": ["Contacts", "Accounts"]
+        }
+    """
+    logger.info("🔄 CRM Sync: Starting synchronization")
+    
+    # Check if CRM is available
+    if not is_crm_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CRM ist nicht konfiguriert. Bitte ACTIVE_CRM_PROVIDER setzen.",
+        )
+    
+    try:
+        # Get CRM provider
+        provider = get_crm_provider()
+        
+        if not provider:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="CRM Provider konnte nicht geladen werden",
+            )
+        
+        provider_name = provider.get_provider_name()
+        logger.info(f"📞 Using CRM provider: {provider_name}")
+        
+        # Fetch skeleton data
+        logger.info(f"📥 Fetching skeleton data for: {entity_types or 'default types'}")
+        skeleton_data = provider.fetch_skeleton_data(entity_types)
+        
+        if not skeleton_data:
+            return CRMSyncResponse(
+                status="success",
+                entities_synced=0,
+                entities_created=0,
+                entities_updated=0,
+                entity_types=entity_types or [],
+                message="No entities found in CRM",
+            )
+        
+        logger.info(f"✅ Fetched {len(skeleton_data)} entities from CRM")
+        
+        # Sync to Neo4j
+        entities_created = 0
+        entities_updated = 0
+        errors = []
+        synced_types = set()
+        
+        for entity in skeleton_data:
+            try:
+                source_id = entity.get("source_id")
+                name = entity.get("name")
+                entity_type = entity.get("type")
+                email = entity.get("email")
+                
+                if not source_id or not name:
+                    logger.warning(f"⚠️ Skipping entity with missing data: {entity}")
+                    continue
+                
+                synced_types.add(entity_type)
+                
+                # MERGE query: Create or update node
+                cypher_query = """
+                MERGE (e:CRMEntity {source_id: $source_id})
+                ON CREATE SET
+                    e.name = $name,
+                    e.type = $type,
+                    e.email = $email,
+                    e.created_at = datetime(),
+                    e.synced_at = datetime(),
+                    e.source = $source
+                ON MATCH SET
+                    e.name = $name,
+                    e.type = $type,
+                    e.email = $email,
+                    e.synced_at = datetime(),
+                    e.source = $source
+                RETURN e, 
+                       CASE WHEN e.created_at = e.synced_at THEN 'created' ELSE 'updated' END as action
+                """
+                
+                result = await graph_store.client.execute_query(
+                    cypher_query,
+                    parameters_={
+                        "source_id": source_id,
+                        "name": name,
+                        "type": entity_type,
+                        "email": email,
+                        "source": provider_name,
+                    }
+                )
+                
+                # Count created vs updated
+                if result and result.records:
+                    action = result.records[0].get("action")
+                    if action == "created":
+                        entities_created += 1
+                    else:
+                        entities_updated += 1
+                
+            except Exception as e:
+                error_msg = f"Error syncing entity {entity.get('source_id')}: {str(e)}"
+                logger.error(f"❌ {error_msg}")
+                errors.append(error_msg)
+                continue
+        
+        total_synced = entities_created + entities_updated
+        
+        logger.info(
+            f"✅ CRM Sync completed: "
+            f"{total_synced} entities synced "
+            f"({entities_created} created, {entities_updated} updated)"
+        )
+        
+        return CRMSyncResponse(
+            status="success" if not errors else "partial_success",
+            entities_synced=total_synced,
+            entities_created=entities_created,
+            entities_updated=entities_updated,
+            entity_types=list(synced_types),
+            message=f"Successfully synced {total_synced} entities from {provider_name}",
+            errors=errors[:10],  # Limit to first 10 errors
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ CRM sync failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"CRM sync failed: {str(e)}",
+        )

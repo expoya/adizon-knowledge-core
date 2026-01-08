@@ -1,0 +1,142 @@
+"""
+CRM Provider Factory.
+Implements factory pattern for loading CRM integrations dynamically.
+"""
+
+import logging
+from functools import lru_cache
+from typing import Optional
+
+from app.core.config import get_settings
+from app.core.interfaces.crm import CRMProvider
+
+logger = logging.getLogger(__name__)
+
+
+class CRMProviderError(Exception):
+    """Raised when CRM provider cannot be loaded or initialized."""
+    pass
+
+
+@lru_cache
+def get_crm_provider() -> Optional[CRMProvider]:
+    """
+    Factory function to get the configured CRM provider.
+    
+    Reads ACTIVE_CRM_PROVIDER from settings and dynamically loads
+    the corresponding provider implementation.
+    
+    Returns:
+        Configured CRM provider instance, or None if no provider is active
+        
+    Raises:
+        CRMProviderError: If provider is configured but cannot be loaded
+        
+    Example:
+        >>> provider = get_crm_provider()
+        >>> if provider:
+        ...     if provider.check_connection():
+        ...         data = provider.fetch_skeleton_data(["Contacts"])
+    """
+    settings = get_settings()
+    
+    active_provider = settings.active_crm_provider.lower() if settings.active_crm_provider else None
+    
+    if not active_provider or active_provider == "none":
+        logger.info("ℹ️ No CRM provider configured")
+        return None
+    
+    logger.info(f"🔌 Loading CRM provider: {active_provider}")
+    
+    # Factory pattern: Load provider based on configuration
+    try:
+        if active_provider == "zoho":
+            return _load_zoho_provider()
+        
+        # Future providers can be added here:
+        # elif active_provider == "salesforce":
+        #     return _load_salesforce_provider()
+        # elif active_provider == "hubspot":
+        #     return _load_hubspot_provider()
+        
+        else:
+            raise CRMProviderError(
+                f"Unknown CRM provider: {active_provider}. "
+                f"Supported providers: zoho"
+            )
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to load CRM provider '{active_provider}': {e}")
+        raise CRMProviderError(f"Failed to load CRM provider: {e}") from e
+
+
+def _load_zoho_provider() -> CRMProvider:
+    """
+    Loads and initializes Zoho CRM provider.
+    
+    Returns:
+        Configured ZohoCRMProvider instance
+        
+    Raises:
+        CRMProviderError: If Zoho credentials are missing or invalid
+    """
+    settings = get_settings()
+    
+    # Validate required credentials
+    if not settings.zoho_client_id:
+        raise CRMProviderError("ZOHO_CLIENT_ID not configured")
+    
+    if not settings.zoho_client_secret:
+        raise CRMProviderError("ZOHO_CLIENT_SECRET not configured")
+    
+    if not settings.zoho_refresh_token:
+        raise CRMProviderError("ZOHO_REFRESH_TOKEN not configured")
+    
+    # Import here to avoid loading integration code if not needed
+    from app.integrations.zoho import ZohoCRMProvider
+    
+    logger.info("✅ Initializing Zoho CRM provider")
+    
+    provider = ZohoCRMProvider(
+        client_id=settings.zoho_client_id,
+        client_secret=settings.zoho_client_secret,
+        refresh_token=settings.zoho_refresh_token,
+        api_base_url=settings.zoho_api_base_url,
+    )
+    
+    # Verify connection
+    try:
+        if not provider.check_connection():
+            logger.warning("⚠️ Zoho CRM connection check failed")
+            # Don't raise error, allow app to start
+            # Connection issues might be temporary
+    except Exception as e:
+        logger.warning(f"⚠️ Zoho CRM connection check error: {e}")
+    
+    return provider
+
+
+def clear_crm_provider_cache() -> None:
+    """
+    Clears the cached CRM provider instance.
+    
+    Useful for testing or when credentials are updated at runtime.
+    """
+    logger.info("🔄 Clearing CRM provider cache")
+    get_crm_provider.cache_clear()
+
+
+def is_crm_available() -> bool:
+    """
+    Quick check if a CRM provider is configured and available.
+    
+    Returns:
+        True if a CRM provider is active, False otherwise
+    """
+    try:
+        provider = get_crm_provider()
+        return provider is not None
+    except Exception as e:
+        logger.error(f"❌ CRM availability check failed: {e}")
+        return False
+

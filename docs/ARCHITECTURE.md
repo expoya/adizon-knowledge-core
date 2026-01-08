@@ -2,7 +2,13 @@
 
 ## Overview
 
-**Adizon Knowledge Core** ist ein Sovereign AI RAG-System (Retrieval-Augmented Generation) mit integrierter Knowledge Graph Funktionalität. Es kombiniert semantische Vektorsuche mit struktureller Graph-Abfrage für intelligente Dokumenten-Q&A mit Entity-Extraktion.
+**Adizon Knowledge Core** (auch bekannt als **Adizon Enterprise-Intelligence-System**) ist ein fortschrittliches, agentisches RAG-System (Retrieval-Augmented Generation) mit integrierter Knowledge Graph Funktionalität und SQL-Integrationsfähigkeiten. Es kombiniert drei Hauptdatenquellen:
+
+1. **Semantische Vektorsuche** (pgvector) für Dokumenten-Chunks
+2. **Knowledge Graph** (Neo4j) für Entity-Beziehungen
+3. **Externe SQL-Datenbanken** für strukturierte Geschäftsdaten
+
+Das System nutzt **LangGraph** für intelligentes, autonomes Routing und Multi-Source Intelligence.
 
 ## System Architecture
 
@@ -70,12 +76,29 @@ adizon-knowledge-core/
 │   ├── app/
 │   │   ├── main.py            # Entry Point
 │   │   ├── api/endpoints/     # REST Endpoints
-│   │   ├── core/config.py     # Konfiguration
+│   │   │   ├── chat.py        # ⭐ Agentic RAG Integration
+│   │   │   ├── ingestion.py
+│   │   │   └── graph.py
+│   │   ├── core/
+│   │   │   ├── config.py      # Konfiguration
+│   │   │   └── llm.py         # ⭐ LLM Factory
 │   │   ├── db/                # Database Session
 │   │   ├── models/            # SQLAlchemy Models
 │   │   ├── services/          # Business Logic
-│   │   ├── graph/             # Workflow Dispatcher
-│   │   └── config/            # Ontology YAML
+│   │   │   ├── metadata_store.py    # ⭐ External Sources
+│   │   │   ├── sql_connector.py     # ⭐ SQL Connections
+│   │   │   ├── vector_store.py
+│   │   │   ├── graph_store.py
+│   │   │   └── storage.py
+│   │   ├── graph/             # LangGraph Workflows
+│   │   │   ├── chat_workflow.py     # ⭐ Agentic RAG
+│   │   │   └── ingestion_workflow.py
+│   │   ├── tools/             # ⭐ Agent Tools
+│   │   │   ├── knowledge.py   # Knowledge Search
+│   │   │   └── sql.py         # SQL Execution
+│   │   └── config/            # Configuration Files
+│   │       ├── ontology_voltage.yaml
+│   │       └── external_sources.yaml  # ⭐ SQL Sources
 │   └── Dockerfile
 ├── frontend/                   # React Frontend (Port 5173/80)
 │   ├── src/
@@ -140,30 +163,50 @@ graph LR
     FINAL -.->|HTTP Callback| BE[Backend]
 ```
 
-### Chat Query Flow (Hybrid RAG)
+### Chat Query Flow (Agentic RAG v2.0)
 
 ```mermaid
 sequenceDiagram
     participant FE as Frontend
-    participant BE as Backend
+    participant BE as Backend API
+    participant WF as LangGraph Workflow
+    participant ROUTER as Router Node
+    participant SQL as SQL Node
+    participant KB as Knowledge Node
+    participant GEN as Generator Node
+    participant EXDB as External DB
     participant PG as PostgreSQL<br/>+ pgvector
     participant NEO as Neo4j
-    participant LLM as LLM
 
     FE->>BE: POST /api/v1/chat
-
-    par Vector Search
-        BE->>PG: Similarity Search<br/>k=5, threshold=0.8
-        PG-->>BE: Relevant Chunks
-    and Graph Search
-        BE->>NEO: Cypher Query<br/>APPROVED nodes
-        NEO-->>BE: Graph Context
+    BE->>WF: Execute Workflow
+    
+    WF->>ROUTER: Classify Intent
+    ROUTER->>ROUTER: LLM Analysis
+    
+    alt SQL Intent
+        ROUTER->>SQL: Route to SQL
+        SQL->>SQL: Get Schema
+        SQL->>SQL: Generate Query
+        SQL->>EXDB: Execute SQL
+        EXDB-->>SQL: Results
+        SQL->>GEN: SQL Context
+    else Knowledge Intent
+        ROUTER->>KB: Route to Knowledge
+        par Hybrid Search
+            KB->>PG: Vector Search
+            PG-->>KB: Chunks
+        and
+            KB->>NEO: Graph Query
+            NEO-->>KB: Entities
+        end
+        KB->>GEN: Knowledge Context
     end
-
-    BE->>BE: Merge Context
-    BE->>LLM: Generate Response
-    LLM-->>BE: Answer
-    BE-->>FE: Response + Sources + Graph
+    
+    GEN->>GEN: Synthesize Answer
+    GEN-->>WF: Final Response
+    WF-->>BE: Result
+    BE-->>FE: ChatResponse
 ```
 
 ## Microservices Architecture
@@ -279,6 +322,110 @@ graph LR
 | POST | `/api/v1/graph/approve` | Nodes genehmigen |
 | POST | `/api/v1/graph/reject` | Nodes ablehnen |
 | POST | `/api/v1/graph/query` | Cypher Query ausführen |
+
+## Agentic RAG Architecture (v2.0)
+
+### LangGraph Workflow
+
+```mermaid
+graph TB
+    START([Start]) --> ROUTER[Router Node<br/>🔍 Intent Classification]
+    
+    ROUTER -->|intent=sql| SQL[SQL Node<br/>🗄️ Query Generation]
+    ROUTER -->|intent=knowledge| KB[Knowledge Node<br/>📚 Hybrid Search]
+    
+    subgraph SQL_FLOW[SQL Processing]
+        SQL --> SCHEMA[Get Schema<br/>SQLAlchemy Inspector]
+        SCHEMA --> GENQ[LLM: Generate SQL]
+        GENQ --> EXEC[Execute Query]
+    end
+    
+    subgraph KB_FLOW[Knowledge Processing]
+        KB --> VEC[Vector Search<br/>pgvector]
+        KB --> GRAPH[Graph Search<br/>Neo4j]
+    end
+    
+    EXEC --> GEN[Generator Node<br/>✍️ Answer Synthesis]
+    VEC --> GEN
+    GRAPH --> GEN
+    
+    GEN --> END([Final Answer])
+    
+    style ROUTER fill:#e1f5ff
+    style SQL fill:#fff4e1
+    style KB fill:#e8f5e9
+    style GEN fill:#f3e5f5
+```
+
+### Agent State Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> RouterNode: Initial State
+    
+    state RouterNode {
+        [*] --> ClassifyIntent
+        ClassifyIntent --> SearchMetadata: SQL keywords detected
+        SearchMetadata --> CheckTables: Query metadata service
+        CheckTables --> SetSQLIntent: Tables found
+        CheckTables --> SetKnowledgeIntent: No tables
+        ClassifyIntent --> SetKnowledgeIntent: Knowledge keywords
+    }
+    
+    SetSQLIntent --> SQLNode
+    SetKnowledgeIntent --> KnowledgeNode
+    
+    state SQLNode {
+        [*] --> GetSchema
+        GetSchema --> GenerateQuery
+        GenerateQuery --> ExecuteSQL
+        ExecuteSQL --> [*]
+    }
+    
+    state KnowledgeNode {
+        [*] --> VectorSearch
+        [*] --> GraphSearch
+        VectorSearch --> [*]
+        GraphSearch --> [*]
+    }
+    
+    SQLNode --> GeneratorNode
+    KnowledgeNode --> GeneratorNode
+    
+    state GeneratorNode {
+        [*] --> CollectContext
+        CollectContext --> SynthesizeAnswer
+        SynthesizeAnswer --> [*]
+    }
+    
+    GeneratorNode --> [*]
+```
+
+### Agent Tools
+
+| Tool | Purpose | Location |
+|------|---------|----------|
+| `search_knowledge_base` | Hybrid RAG (Vector+Graph) | `app/tools/knowledge.py` |
+| `execute_sql_query` | Run SELECT queries | `app/tools/sql.py` |
+| `get_sql_schema` | Inspect table schemas | `app/tools/sql.py` |
+
+### External Source Configuration
+
+```yaml
+# backend/app/config/external_sources.yaml
+sources:
+  - id: "erp_postgres"
+    type: "sql"
+    description: "Business data: revenue, customers, invoices"
+    connection_env: "ERP_DATABASE_URL"
+    tables:
+      - name: "invoices"
+        description: "Invoice records with amounts and dates"
+```
+
+**Services:**
+- **MetadataService**: Discovers relevant tables based on query
+- **SQLConnectorService**: Manages database connections with pooling
 
 ## Multi-Tenant Ontology
 

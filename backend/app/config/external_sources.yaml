@@ -1,0 +1,11 @@
+sources:
+  - id: "erp_postgres"
+    type: "sql"
+    description: "Enthält strukturierte Geschäftsdaten. Wichtig für Umsatz, Kunden und Rechnungen."
+    connection_env: "ERP_DATABASE_URL"
+    tables:
+      - name: "invoices"
+        description: "Rechnungen mit Betrag (amount), Datum und Kunden-ID."
+      - name: "customers"
+        description: "Kundenstammdaten mit Namen und Regionen."
+

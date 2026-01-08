@@ -193,6 +193,37 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
 
+    # -------------------------------------------------------------------------
+    # CRM Integration (Plugin System)
+    # -------------------------------------------------------------------------
+    active_crm_provider: str | None = Field(
+        default="zoho",
+        alias="ACTIVE_CRM_PROVIDER",
+        description="Active CRM provider: 'zoho', 'salesforce', 'hubspot', or 'none'",
+    )
+
+    # Zoho CRM Configuration
+    zoho_client_id: str | None = Field(
+        default=None,
+        alias="ZOHO_CLIENT_ID",
+        description="Zoho OAuth2 Client ID",
+    )
+    zoho_client_secret: str | None = Field(
+        default=None,
+        alias="ZOHO_CLIENT_SECRET",
+        description="Zoho OAuth2 Client Secret",
+    )
+    zoho_refresh_token: str | None = Field(
+        default=None,
+        alias="ZOHO_REFRESH_TOKEN",
+        description="Zoho OAuth2 Refresh Token (long-lived)",
+    )
+    zoho_api_base_url: str = Field(
+        default="https://www.zohoapis.eu",
+        alias="ZOHO_API_BASE_URL",
+        description="Zoho API base URL (region-specific: .com, .eu, .in, etc.)",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
