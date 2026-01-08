@@ -383,37 +383,36 @@ class ZohoCRMProvider(CRMProvider):
             
             logger.info(f"  📋 Processing {entity_type} (module: {module_name})...")
             
-            try:
-                # Special case: Users via API (not COQL)
-                if config.get("use_api"):
-                    try:
-                        logger.debug("    Using /users API endpoint")
-                        response = await self.client.get("/crm/v6/users", params={"type": "ActiveUsers"})
-                        users = response.get("users", [])
-                        
-                        for user in users:
-                            entity = {
-                                "source_id": f"zoho_{user.get('id')}",
-                                "name": user.get("full_name") or user.get("name", "Unknown User"),
-                                "type": "User",
-                            }
-                            if user.get("email"):
-                                entity["email"] = user.get("email")
-                            results.append(entity)
-                        
-                        logger.info(f"    ✅ Fetched {len(users)} {entity_type}")
-                        continue  # Skip COQL logic for Users
-                        
-                    except ZohoAPIError as e:
-                        logger.warning(
-                            f"    ⚠️ Skipping Users sync due to missing scope or permissions. "
-                            f"Error: {str(e)}"
-                        )
-                        continue
-                    except Exception as e:
-                        logger.error(f"    ❌ Error fetching Users via API: {e}")
-                        continue
-                
+            # Special case: Users via API (not COQL)
+            if config.get("use_api"):
+                try:
+                    logger.debug("    Using /users API endpoint")
+                    response = await self.client.get("/crm/v6/users", params={"type": "ActiveUsers"})
+                    users = response.get("users", [])
+                    
+                    for user in users:
+                        entity = {
+                            "source_id": f"zoho_{user.get('id')}",
+                            "name": user.get("full_name") or user.get("name", "Unknown User"),
+                            "type": "User",
+                        }
+                        if user.get("email"):
+                            entity["email"] = user.get("email")
+                        results.append(entity)
+                    
+                    logger.info(f"    ✅ Fetched {len(users)} {entity_type}")
+                    continue  # Skip COQL logic for Users
+                    
+                except ZohoAPIError as e:
+                    logger.warning(
+                        f"    ⚠️ Skipping Users sync due to missing scope or permissions. "
+                        f"Error: {str(e)}"
+                    )
+                    continue
+                except Exception as e:
+                    logger.error(f"    ❌ Error fetching Users via API: {e}")
+                    continue
+            
             try:
                 # Resolve fields for this module
                 resolved_fields = {}
