@@ -303,8 +303,8 @@ async def reprocess_document(
 
 @router.post("/crm-sync", response_model=CRMSyncResponse)
 async def sync_crm_entities(
-    entity_types: list[str] | None = None,
     graph_store: Annotated[GraphStoreService, Depends(get_graph_store_service)],
+    entity_types: list[str] | None = None,
 ) -> CRMSyncResponse:
     """
     Synchronisiert CRM-Entities in den Knowledge Graph.
