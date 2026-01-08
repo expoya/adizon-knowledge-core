@@ -54,6 +54,12 @@ class DocumentResponse(BaseModel):
         from_attributes = True
 
 
+class CRMSyncRequest(BaseModel):
+    """Request model for CRM sync operations."""
+    
+    entity_types: list[str] | None = None
+
+
 class CRMSyncResponse(BaseModel):
     """Response model for CRM sync operations."""
     
@@ -303,8 +309,8 @@ async def reprocess_document(
 
 @router.post("/crm-sync", response_model=CRMSyncResponse)
 async def sync_crm_entities(
+    request: CRMSyncRequest,
     graph_store: Annotated[GraphStoreService, Depends(get_graph_store_service)],
-    entity_types: list[str] | None = None,
 ) -> CRMSyncResponse:
     """
     Synchronisiert CRM-Entities in den Knowledge Graph.
@@ -313,8 +319,8 @@ async def sync_crm_entities(
     Nodes im Neo4j Graph. Dies ist der Trigger für nächtliche Syncs.
     
     Args:
-        entity_types: Liste der zu synchronisierenden Entity-Typen.
-                     Default: ["Users", "Accounts", "Contacts", "Leads"]
+        request: CRMSyncRequest mit entity_types Liste.
+                 Default: ["Users", "Accounts", "Contacts", "Leads"]
     
     Returns:
         CRMSyncResponse mit Statistiken
@@ -348,8 +354,8 @@ async def sync_crm_entities(
         logger.info(f"📞 Using CRM provider: {provider_name}")
         
         # Fetch skeleton data
-        logger.info(f"📥 Fetching skeleton data for: {entity_types or 'default types'}")
-        skeleton_data = provider.fetch_skeleton_data(entity_types)
+        logger.info(f"📥 Fetching skeleton data for: {request.entity_types or 'default types'}")
+        skeleton_data = provider.fetch_skeleton_data(request.entity_types)
         
         if not skeleton_data:
             return CRMSyncResponse(
@@ -357,7 +363,7 @@ async def sync_crm_entities(
                 entities_synced=0,
                 entities_created=0,
                 entities_updated=0,
-                entity_types=entity_types or [],
+                entity_types=request.entity_types or [],
                 message="No entities found in CRM",
             )
         
