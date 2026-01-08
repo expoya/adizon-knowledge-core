@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @tool
-def get_crm_facts(entity_id: str, query_context: str = "") -> str:
+async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
     """
     Holt Live-Fakten über eine Entity aus dem CRM-System.
     
@@ -59,7 +59,7 @@ def get_crm_facts(entity_id: str, query_context: str = "") -> str:
         # Fetch live facts
         logger.info(f"📞 Calling CRM: {provider.get_provider_name()}")
         
-        facts = provider.search_live_facts(
+        facts = await provider.search_live_facts(
             entity_id=entity_id,
             query_context=query_context
         )

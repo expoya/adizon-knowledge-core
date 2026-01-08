@@ -60,7 +60,7 @@ class CRMProvider(ABC):
         pass
 
     @abstractmethod
-    def search_live_facts(self, entity_id: str, query_context: str) -> str:
+    async def search_live_facts(self, entity_id: str, query_context: str) -> str:
         """
         Retrieves live facts about a specific entity from the CRM.
         
@@ -75,7 +75,8 @@ class CRMProvider(ABC):
             Formatted string with relevant facts, ready for LLM consumption
             
         Example:
-            >>> provider.search_live_facts("123", "deals and revenue")
+            >>> provider = get_crm_provider()
+            >>> facts = await provider.search_live_facts("123", "deals and revenue")
             '''
             Contact: John Doe (ID: 123)
             - Open Deals: 2 (Total Value: $50,000)
@@ -86,7 +87,7 @@ class CRMProvider(ABC):
         pass
 
     @abstractmethod
-    def execute_raw_query(self, query: str) -> Any:
+    async def execute_raw_query(self, query: str) -> Any:
         """
         Executes a raw query against the CRM API.
         
@@ -101,7 +102,8 @@ class CRMProvider(ABC):
             
         Example:
             >>> # Zoho COQL example
-            >>> provider.execute_raw_query("SELECT First_Name, Last_Name FROM Contacts WHERE Email is not null")
+            >>> provider = get_crm_provider()
+            >>> results = await provider.execute_raw_query("SELECT First_Name, Last_Name FROM Contacts WHERE Email is not null")
             [{"First_Name": "John", "Last_Name": "Doe"}, ...]
         """
         pass

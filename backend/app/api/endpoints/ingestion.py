@@ -455,9 +455,9 @@ async def sync_crm_entities(
                        CASE WHEN n.created_at = n.synced_at THEN 'created' ELSE 'updated' END as action
                 """
                 
-                result = await graph_store.client.execute_query(
+                result = await graph_store.query(
                     cypher_query,
-                    parameters_={
+                    parameters={
                         "source_id": source_id,
                         "name": name,
                         "type": entity_type,
@@ -474,8 +474,8 @@ async def sync_crm_entities(
                 )
                 
                 # Count created vs updated
-                if result and result.records:
-                    action = result.records[0].get("action")
+                if result and len(result) > 0:
+                    action = result[0].get("action")
                     if action == "created":
                         entities_created += 1
                     else:
