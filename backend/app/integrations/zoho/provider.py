@@ -137,17 +137,34 @@ class ZohoCRMProvider(CRMProvider):
 
     def fetch_skeleton_data(self, entity_types: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
-        Fetches basic master data from Zoho CRM for graph import.
+        Fetches comprehensive master data from Zoho CRM for graph import with relationships.
         
         Args:
-            entity_types: Zoho module names. Defaults to ["Users", "Accounts", "Contacts", "Leads"]
+            entity_types: Zoho module names. Defaults to full set:
+                         ["Users", "Accounts", "Contacts", "Leads", "Deals", 
+                          "Events", "Invoices", "Subscriptions"]
             
         Returns:
             List of entity records with standardized format:
-            {"source_id": "zoho_{id}", "name": "...", "type": "{Type}", ...}
+            {
+                "source_id": "zoho_{id}",
+                "name": "...",
+                "type": "{Type}",
+                "related_to": "zoho_{parent_id}",  # Optional
+                "relation_type": "HAS_DEAL"  # Optional
+            }
         """
         if entity_types is None:
-            entity_types = ["Users", "Accounts", "Contacts", "Leads"]
+            entity_types = [
+                "Users",
+                "Accounts", 
+                "Contacts",
+                "Leads",
+                "Deals",
+                "Events",
+                "Invoices",
+                "Subscriptions"
+            ]
         
         logger.info(f"📥 Fetching skeleton data for: {entity_types}")
         
@@ -160,7 +177,6 @@ class ZohoCRMProvider(CRMProvider):
                 # Build COQL query based on entity type
                 if entity_type == "Users":
                     query = "SELECT id, full_name, email FROM Users LIMIT 200"
-                    
                     data = self.execute_raw_query(query)
                     
                     for record in data:
@@ -172,39 +188,179 @@ class ZohoCRMProvider(CRMProvider):
                         })
                 
                 elif entity_type == "Accounts":
-                    query = "SELECT id, Account_Name FROM Accounts LIMIT 200"
-                    
+                    query = "SELECT id, Account_Name, Owner FROM Accounts LIMIT 200"
                     data = self.execute_raw_query(query)
                     
                     for record in data:
-                        results.append({
+                        entity = {
                             "source_id": f"zoho_{record.get('id')}",
                             "name": record.get("Account_Name", "Unknown Account"),
                             "type": "Account",
-                        })
+                        }
+                        
+                        # Relation to Owner (User)
+                        owner = record.get("Owner")
+                        if owner and isinstance(owner, dict) and owner.get("id"):
+                            entity["related_to"] = f"zoho_{owner.get('id')}"
+                            entity["relation_type"] = "OWNED_BY"
+                        
+                        results.append(entity)
                 
-                elif entity_type in ["Contacts", "Leads"]:
-                    query = f"SELECT id, Last_Name, First_Name, Email FROM {entity_type} LIMIT 200"
-                    
+                elif entity_type == "Contacts":
+                    query = "SELECT id, Last_Name, First_Name, Email, Account_Name FROM Contacts LIMIT 200"
                     data = self.execute_raw_query(query)
                     
                     for record in data:
                         # Build name from First_Name + Last_Name
                         first = record.get("First_Name", "")
                         last = record.get("Last_Name", "")
-                        name = f"{first} {last}".strip() or "Unknown"
+                        name = f"{first} {last}".strip() or "Unknown Contact"
                         
-                        results.append({
+                        entity = {
                             "source_id": f"zoho_{record.get('id')}",
                             "name": name,
-                            "type": entity_type.rstrip("s"),  # "Contacts" -> "Contact"
+                            "type": "Contact",
                             "email": record.get("Email"),
-                        })
+                        }
+                        
+                        # Relation to Account (WORKS_AT)
+                        account = record.get("Account_Name")
+                        if account and isinstance(account, dict) and account.get("id"):
+                            entity["related_to"] = f"zoho_{account.get('id')}"
+                            entity["relation_type"] = "WORKS_AT"
+                        
+                        results.append(entity)
+                
+                elif entity_type == "Leads":
+                    query = "SELECT id, Last_Name, First_Name, Email, Owner FROM Leads LIMIT 200"
+                    data = self.execute_raw_query(query)
+                    
+                    for record in data:
+                        # Build name from First_Name + Last_Name
+                        first = record.get("First_Name", "")
+                        last = record.get("Last_Name", "")
+                        name = f"{first} {last}".strip() or "Unknown Lead"
+                        
+                        entity = {
+                            "source_id": f"zoho_{record.get('id')}",
+                            "name": name,
+                            "type": "Lead",
+                            "email": record.get("Email"),
+                        }
+                        
+                        # Relation to Owner (User)
+                        owner = record.get("Owner")
+                        if owner and isinstance(owner, dict) and owner.get("id"):
+                            entity["related_to"] = f"zoho_{owner.get('id')}"
+                            entity["relation_type"] = "OWNED_BY"
+                        
+                        results.append(entity)
+                
+                elif entity_type == "Deals":
+                    query = "SELECT id, Deal_Name, Leads, Account_Name, Amount, Stage FROM Deals LIMIT 200"
+                    data = self.execute_raw_query(query)
+                    
+                    for record in data:
+                        entity = {
+                            "source_id": f"zoho_{record.get('id')}",
+                            "name": record.get("Deal_Name", "Unknown Deal"),
+                            "type": "Deal",
+                            "amount": record.get("Amount"),
+                            "stage": record.get("Stage"),
+                        }
+                        
+                        # Relation to Lead or Account
+                        leads = record.get("Leads")
+                        account = record.get("Account_Name")
+                        
+                        if leads and isinstance(leads, dict) and leads.get("id"):
+                            entity["related_to"] = f"zoho_{leads.get('id')}"
+                            entity["relation_type"] = "HAS_DEAL"
+                        elif account and isinstance(account, dict) and account.get("id"):
+                            entity["related_to"] = f"zoho_{account.get('id')}"
+                            entity["relation_type"] = "HAS_DEAL"
+                        
+                        results.append(entity)
+                
+                elif entity_type == "Events":
+                    # Calendly Events
+                    query = "SELECT id, Name, Lead, Account, Event_Start_Time, Status FROM calendlyforzohocrm__Calendly_Events LIMIT 200"
+                    data = self.execute_raw_query(query)
+                    
+                    for record in data:
+                        entity = {
+                            "source_id": f"zoho_{record.get('id')}",
+                            "name": record.get("Name", "Unknown Event"),
+                            "type": "Event",
+                            "start_time": record.get("Event_Start_Time"),
+                            "status": record.get("Status"),
+                        }
+                        
+                        # Relation to Lead or Account
+                        lead = record.get("Lead")
+                        account = record.get("Account")
+                        
+                        if lead and isinstance(lead, dict) and lead.get("id"):
+                            entity["related_to"] = f"zoho_{lead.get('id')}"
+                            entity["relation_type"] = "HAS_EVENT"
+                        elif account and isinstance(account, dict) and account.get("id"):
+                            entity["related_to"] = f"zoho_{account.get('id')}"
+                            entity["relation_type"] = "HAS_EVENT"
+                        
+                        results.append(entity)
+                
+                elif entity_type == "Subscriptions":
+                    # Billings/Subscriptions
+                    query = "SELECT id, Name, Account, Total, Status FROM Subscriptions__s LIMIT 200"
+                    data = self.execute_raw_query(query)
+                    
+                    for record in data:
+                        entity = {
+                            "source_id": f"zoho_{record.get('id')}",
+                            "name": record.get("Name", "Unknown Subscription"),
+                            "type": "Subscription",
+                            "total": record.get("Total"),
+                            "status": record.get("Status"),
+                        }
+                        
+                        # Relation to Account
+                        account = record.get("Account")
+                        if account and isinstance(account, dict) and account.get("id"):
+                            entity["related_to"] = f"zoho_{account.get('id')}"
+                            entity["relation_type"] = "HAS_SUBSCRIPTION"
+                        
+                        results.append(entity)
+                
+                elif entity_type == "Invoices":
+                    # Zoho Books Invoices
+                    query = "SELECT id, Name, Account, Total, Status FROM Zoho_Books LIMIT 200"
+                    data = self.execute_raw_query(query)
+                    
+                    for record in data:
+                        entity = {
+                            "source_id": f"zoho_{record.get('id')}",
+                            "name": record.get("Name", "Unknown Invoice"),
+                            "type": "Invoice",
+                            "total": record.get("Total"),
+                            "status": record.get("Status"),
+                        }
+                        
+                        # Relation to Account
+                        account = record.get("Account")
+                        if account and isinstance(account, dict) and account.get("id"):
+                            entity["related_to"] = f"zoho_{account.get('id')}"
+                            entity["relation_type"] = "HAS_INVOICE"
+                        
+                        results.append(entity)
                 
                 else:
                     logger.warning(f"⚠️ Unknown entity type: {entity_type}")
+                    continue
                 
-                logger.info(f"    ✅ Fetched {len([r for r in results if r['type'] == entity_type.rstrip('s')])} {entity_type}")
+                # Count fetched entities of this type
+                type_name = entity_type.rstrip("s") if entity_type not in ["Events", "Invoices", "Subscriptions"] else entity_type
+                count = len([r for r in results if r.get('type') in [type_name, entity_type]])
+                logger.info(f"    ✅ Fetched {count} {entity_type}")
                 
             except Exception as e:
                 logger.error(f"❌ Error fetching {entity_type}: {e}")

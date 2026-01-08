@@ -375,6 +375,15 @@ async def sync_crm_entities(
                 name = entity.get("name")
                 entity_type = entity.get("type")
                 email = entity.get("email")
+                related_to = entity.get("related_to")
+                relation_type = entity.get("relation_type")
+                
+                # Additional properties (for Deals, Events, etc.)
+                amount = entity.get("amount")
+                stage = entity.get("stage")
+                status_field = entity.get("status")
+                total = entity.get("total")
+                start_time = entity.get("start_time")
                 
                 if not source_id or not name:
                     logger.warning(f"⚠️ Skipping entity with missing data: {entity}")
@@ -382,24 +391,62 @@ async def sync_crm_entities(
                 
                 synced_types.add(entity_type)
                 
-                # MERGE query: Create or update node
+                # MERGE query: Create or update node + relationships
                 cypher_query = """
-                MERGE (e:CRMEntity {source_id: $source_id})
+                MERGE (n:CRMEntity {source_id: $source_id})
                 ON CREATE SET
-                    e.name = $name,
-                    e.type = $type,
-                    e.email = $email,
-                    e.created_at = datetime(),
-                    e.synced_at = datetime(),
-                    e.source = $source
+                    n.name = $name,
+                    n.type = $type,
+                    n.email = $email,
+                    n.amount = $amount,
+                    n.stage = $stage,
+                    n.status = $status,
+                    n.total = $total,
+                    n.start_time = $start_time,
+                    n.created_at = datetime(),
+                    n.synced_at = datetime(),
+                    n.source = $source
                 ON MATCH SET
-                    e.name = $name,
-                    e.type = $type,
-                    e.email = $email,
-                    e.synced_at = datetime(),
-                    e.source = $source
-                RETURN e, 
-                       CASE WHEN e.created_at = e.synced_at THEN 'created' ELSE 'updated' END as action
+                    n.name = $name,
+                    n.type = $type,
+                    n.email = $email,
+                    n.amount = $amount,
+                    n.stage = $stage,
+                    n.status = $status,
+                    n.total = $total,
+                    n.start_time = $start_time,
+                    n.synced_at = datetime(),
+                    n.source = $source
+                
+                WITH n
+                WHERE $related_to IS NOT NULL
+                
+                // Merge parent node
+                MERGE (p:CRMEntity {source_id: $related_to})
+                
+                // Create relationships based on relation_type using FOREACH
+                WITH n, p
+                FOREACH (_ IN CASE WHEN $relation_type = 'OWNED_BY' THEN [1] ELSE [] END |
+                    MERGE (p)-[:OWNS]->(n)
+                )
+                FOREACH (_ IN CASE WHEN $relation_type = 'WORKS_AT' THEN [1] ELSE [] END |
+                    MERGE (n)-[:WORKS_AT]->(p)
+                )
+                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_DEAL' THEN [1] ELSE [] END |
+                    MERGE (p)-[:HAS_DEAL]->(n)
+                )
+                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_EVENT' THEN [1] ELSE [] END |
+                    MERGE (p)-[:HAS_EVENT]->(n)
+                )
+                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_SUBSCRIPTION' THEN [1] ELSE [] END |
+                    MERGE (p)-[:HAS_SUBSCRIPTION]->(n)
+                )
+                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_INVOICE' THEN [1] ELSE [] END |
+                    MERGE (p)-[:HAS_INVOICE]->(n)
+                )
+                
+                RETURN n,
+                       CASE WHEN n.created_at = n.synced_at THEN 'created' ELSE 'updated' END as action
                 """
                 
                 result = await graph_store.client.execute_query(
@@ -409,6 +456,13 @@ async def sync_crm_entities(
                         "name": name,
                         "type": entity_type,
                         "email": email,
+                        "amount": amount,
+                        "stage": stage,
+                        "status": status_field,
+                        "total": total,
+                        "start_time": start_time,
+                        "related_to": related_to,
+                        "relation_type": relation_type,
                         "source": provider_name,
                     }
                 )
