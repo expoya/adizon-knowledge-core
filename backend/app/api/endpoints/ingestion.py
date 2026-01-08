@@ -355,7 +355,7 @@ async def sync_crm_entities(
         
         # Fetch skeleton data
         logger.info(f"📥 Fetching skeleton data for: {request.entity_types or 'default types'}")
-        skeleton_data = provider.fetch_skeleton_data(request.entity_types)
+        skeleton_data = await provider.fetch_skeleton_data(request.entity_types)
         
         if not skeleton_data:
             return CRMSyncResponse(

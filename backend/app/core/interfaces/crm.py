@@ -31,7 +31,7 @@ class CRMProvider(ABC):
         pass
 
     @abstractmethod
-    def fetch_skeleton_data(self, entity_types: List[str]) -> List[Dict[str, Any]]:
+    async def fetch_skeleton_data(self, entity_types: List[str]) -> List[Dict[str, Any]]:
         """
         Fetches basic master data (ID, Name, Type) for graph import.
         
@@ -50,7 +50,8 @@ class CRMProvider(ABC):
             - Additional fields can be included
             
         Example:
-            >>> provider.fetch_skeleton_data(["Contact", "Account"])
+            >>> provider = get_crm_provider()
+            >>> data = await provider.fetch_skeleton_data(["Contact", "Account"])
             [
                 {"id": "123", "name": "John Doe", "type": "Contact", "email": "john@example.com"},
                 {"id": "456", "name": "Acme Corp", "type": "Account", "industry": "Tech"}

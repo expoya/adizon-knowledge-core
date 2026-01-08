@@ -59,6 +59,7 @@ class ZohoCRMProvider(CRMProvider):
         Retrieves and caches valid field names for a module.
         
         Makes API call on first access, then returns cached result.
+        Handles Finance modules (Zoho_Books, Subscriptions) with hardcoded fallback.
         
         Args:
             module: Zoho module name (e.g., "Contacts", "Deals")
@@ -94,6 +95,42 @@ class ZohoCRMProvider(CRMProvider):
             logger.debug(f"  Sample fields: {list(field_names)[:10]}")
             
             return field_names
+            
+        except ZohoAPIError as e:
+            # Finance modules (Zoho_Books, Subscriptions) don't support metadata API
+            error_msg = str(e).lower()
+            if "not_supported" in error_msg or "400" in str(e):
+                logger.warning(
+                    f"⚠️ Module {module} does not support metadata API. "
+                    f"Using hardcoded fallback for Finance modules."
+                )
+                
+                # Hardcoded standard fields for Finance modules
+                fallback_fields = {
+                    "id", 
+                    "Name", 
+                    "Subject", 
+                    "Invoice_Number",
+                    "Total", 
+                    "Grand_Total", 
+                    "Sub_Total",
+                    "Amount",
+                    "Status", 
+                    "Account", 
+                    "Account_Name",
+                    "Contact_Name",
+                    "Date",
+                    "Due_Date"
+                }
+                
+                # Cache the fallback
+                self._module_fields_cache[module] = fallback_fields
+                
+                logger.info(f"  ✅ Using {len(fallback_fields)} fallback fields for {module}")
+                return fallback_fields
+            else:
+                logger.error(f"❌ Error fetching fields for {module}: {e}")
+                return set()
             
         except Exception as e:
             logger.error(f"❌ Error fetching fields for {module}: {e}")
@@ -221,7 +258,7 @@ class ZohoCRMProvider(CRMProvider):
             logger.error(f"❌ Query execution error: {e}")
             return []
 
-    def fetch_skeleton_data(
+    async def fetch_skeleton_data(
         self, 
         entity_types: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
@@ -269,13 +306,6 @@ class ZohoCRMProvider(CRMProvider):
         
         logger.info(f"📥 Fetching skeleton data with smart field resolution")
         logger.info(f"  Entity types: {entity_types}")
-        
-        # Get or create event loop for async operations
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
         
         # Module configurations with field candidates
         MODULE_CONFIGS = {
@@ -359,60 +389,60 @@ class ZohoCRMProvider(CRMProvider):
                 # Resolve name field(s)
                 if entity_type in ["Contacts", "Leads"]:
                     # Special case: name from First + Last
-                    first_name = loop.run_until_complete(
-                        self._resolve_best_field(module_name, ["First_Name"])
+                    first_name = await self._resolve_best_field(
+                        module_name, ["First_Name"]
                     )
-                    last_name = loop.run_until_complete(
-                        self._resolve_best_field(module_name, ["Last_Name"])
+                    last_name = await self._resolve_best_field(
+                        module_name, ["Last_Name"]
                     )
                     resolved_fields["first_name"] = first_name
                     resolved_fields["last_name"] = last_name
                 else:
-                    name_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["name_candidates"])
+                    name_field = await self._resolve_best_field(
+                        module_name, config["name_candidates"]
                     )
                     resolved_fields["name"] = name_field
                 
                 # Resolve optional fields
                 if "email_candidates" in config and config["email_candidates"]:
-                    email_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["email_candidates"])
+                    email_field = await self._resolve_best_field(
+                        module_name, config["email_candidates"]
                     )
                     resolved_fields["email"] = email_field
                 
                 if "amount_candidates" in config:
-                    amount_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["amount_candidates"])
+                    amount_field = await self._resolve_best_field(
+                        module_name, config["amount_candidates"]
                     )
                     resolved_fields["amount"] = amount_field
                 
                 if "stage_candidates" in config:
-                    stage_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["stage_candidates"])
+                    stage_field = await self._resolve_best_field(
+                        module_name, config["stage_candidates"]
                     )
                     resolved_fields["stage"] = stage_field
                 
                 if "status_candidates" in config:
-                    status_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["status_candidates"])
+                    status_field = await self._resolve_best_field(
+                        module_name, config["status_candidates"]
                     )
                     resolved_fields["status"] = status_field
                 
                 if "total_candidates" in config:
-                    total_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["total_candidates"])
+                    total_field = await self._resolve_best_field(
+                        module_name, config["total_candidates"]
                     )
                     resolved_fields["total"] = total_field
                 
                 if "start_time_candidates" in config:
-                    start_time_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["start_time_candidates"])
+                    start_time_field = await self._resolve_best_field(
+                        module_name, config["start_time_candidates"]
                     )
                     resolved_fields["start_time"] = start_time_field
                 
                 if "related_candidates" in config:
-                    related_field = loop.run_until_complete(
-                        self._resolve_best_field(module_name, config["related_candidates"])
+                    related_field = await self._resolve_best_field(
+                        module_name, config["related_candidates"]
                     )
                     resolved_fields["related"] = related_field
                 
