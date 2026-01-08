@@ -314,6 +314,7 @@ class ZohoCRMProvider(CRMProvider):
                 "email_candidates": ["email", "Email"],
                 "module_name": "Users",
                 "relation_type": None,
+                "use_api": True,  # Special case: Use /users API instead of COQL
             },
             "Accounts": {
                 "name_candidates": ["Account_Name", "Name"],
@@ -345,10 +346,10 @@ class ZohoCRMProvider(CRMProvider):
                 "module_name": "Deals",
             },
             "Events": {
-                "name_candidates": ["Name", "Event_Title"],
-                "status_candidates": ["Status"],
-                "start_time_candidates": ["Event_Start_Time", "Start_DateTime"],
-                "related_candidates": ["Lead", "Account", "Contact_Name"],
+                "name_candidates": ["Name", "calendlyforzohocrm__Name1"],
+                "status_candidates": ["calendlyforzohocrm__Status", "Status"],
+                "start_time_candidates": ["calendlyforzohocrm__Start_Time", "Start_DateTime"],
+                "related_candidates": ["calendlyforzohocrm__Lead", "calendlyforzohocrm__Contact", "Verkn_pfter_Account"],
                 "relation_type": "HAS_EVENT",
                 "module_name": "calendlyforzohocrm__Calendly_Events",  # Custom module
             },
@@ -382,6 +383,37 @@ class ZohoCRMProvider(CRMProvider):
             
             logger.info(f"  📋 Processing {entity_type} (module: {module_name})...")
             
+            try:
+                # Special case: Users via API (not COQL)
+                if config.get("use_api"):
+                    try:
+                        logger.debug("    Using /users API endpoint")
+                        response = await self.client.get("/crm/v6/users", params={"type": "ActiveUsers"})
+                        users = response.get("users", [])
+                        
+                        for user in users:
+                            entity = {
+                                "source_id": f"zoho_{user.get('id')}",
+                                "name": user.get("full_name") or user.get("name", "Unknown User"),
+                                "type": "User",
+                            }
+                            if user.get("email"):
+                                entity["email"] = user.get("email")
+                            results.append(entity)
+                        
+                        logger.info(f"    ✅ Fetched {len(users)} {entity_type}")
+                        continue  # Skip COQL logic for Users
+                        
+                    except ZohoAPIError as e:
+                        logger.warning(
+                            f"    ⚠️ Skipping Users sync due to missing scope or permissions. "
+                            f"Error: {str(e)}"
+                        )
+                        continue
+                    except Exception as e:
+                        logger.error(f"    ❌ Error fetching Users via API: {e}")
+                        continue
+                
             try:
                 # Resolve fields for this module
                 resolved_fields = {}
@@ -491,6 +523,14 @@ class ZohoCRMProvider(CRMProvider):
                     select_fields.append(resolved_fields["start_time"])
                 if resolved_fields.get("related"):
                     select_fields.append(resolved_fields["related"])
+                
+                # Empty Query Protection: Skip if only "id" field
+                if len(select_fields) <= 1:
+                    logger.warning(
+                        f"    ⚠️ Skipping {entity_type} (module: {module_name}): "
+                        f"No valid fields found (only 'id')"
+                    )
+                    continue
                 
                 # Build query with WHERE clause (required by Zoho COQL)
                 query = f"SELECT {', '.join(select_fields)} FROM {module_name} WHERE id is not null LIMIT 200"
