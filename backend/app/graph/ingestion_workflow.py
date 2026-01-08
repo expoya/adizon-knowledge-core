@@ -9,7 +9,6 @@ Supports multi-tenant mode by passing all connection configs with each request.
 
 import base64
 import logging
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -43,25 +42,36 @@ class TrooperDispatchError(Exception):
     pass
 
 
-def get_ontology_content() -> str | None:
+async def get_ontology_content() -> str | None:
     """
-    Read and base64-encode the ontology YAML file.
+    Load ontology YAML from MinIO and base64-encode it.
+
+    The ontology is stored in MinIO at the path specified by ONTOLOGY_MINIO_PATH
+    (default: "ontology/ontology.yaml") in the configured bucket.
 
     Returns:
-        Base64-encoded ontology content, or None if file not found.
+        Base64-encoded ontology content, or None if not found.
     """
+    from app.services.storage import get_minio_service
+
     try:
-        ontology_path = Path(settings.ontology_path)
-        if not ontology_path.exists():
-            logger.warning(f"Ontology file not found: {ontology_path}")
+        minio_service = get_minio_service()
+        ontology_path = settings.ontology_minio_path
+
+        # Check if ontology exists in MinIO
+        if not await minio_service.file_exists(ontology_path):
+            logger.warning(f"Ontology file not found in MinIO: {ontology_path}")
             return None
 
-        with open(ontology_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        # Download ontology content
+        content_bytes = await minio_service.download_file(ontology_path)
+        content = content_bytes.decode("utf-8")
 
+        logger.info(f"Ontology loaded from MinIO: {ontology_path}")
         return base64.b64encode(content.encode("utf-8")).decode("utf-8")
+
     except Exception as e:
-        logger.warning(f"Failed to read ontology file: {e}")
+        logger.warning(f"Failed to load ontology from MinIO: {e}")
         return None
 
 
@@ -121,10 +131,10 @@ async def run_ingestion_workflow(
         headers["Authorization"] = f"Bearer {settings.trooper_auth_token}"
         logger.info("   Using auth token for Trooper request")
 
-    # Read and encode ontology content
-    ontology_content = get_ontology_content()
+    # Read and encode ontology content from MinIO
+    ontology_content = await get_ontology_content()
     if ontology_content:
-        logger.info(f"   Ontology loaded from: {settings.ontology_path}")
+        logger.info(f"   Ontology loaded from MinIO: {settings.ontology_minio_path}")
     else:
         logger.warning("   No ontology content - graph extraction may be skipped")
 

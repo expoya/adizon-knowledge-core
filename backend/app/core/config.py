@@ -168,10 +168,12 @@ class Settings(BaseSettings):
 
     # -------------------------------------------------------------------------
     # Ontology Configuration (Multi-Tenant Support)
+    # The ontology YAML is stored in MinIO and loaded dynamically.
     # -------------------------------------------------------------------------
-    ontology_path: str = Field(
-        default="app/config/ontology_voltage.yaml",
-        alias="ONTOLOGY_PATH",
+    ontology_minio_path: str = Field(
+        default="ontology/ontology.yaml",
+        alias="ONTOLOGY_MINIO_PATH",
+        description="Path to ontology YAML in MinIO bucket (e.g., 'ontology/ontology.yaml')",
     )
 
     # -------------------------------------------------------------------------
