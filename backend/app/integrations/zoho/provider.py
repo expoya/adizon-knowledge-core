@@ -451,6 +451,8 @@ class ZohoCRMProvider(CRMProvider):
                 for key, value in resolved_fields.items():
                     if value:
                         logger.info(f"      {key} -> {value}")
+                    else:
+                        logger.warning(f"      ⚠️ Skipping field '{key}' for {module_name} (not found)")
                 
                 # Check if we have minimum required fields
                 if entity_type in ["Contacts", "Leads"]:
@@ -462,7 +464,7 @@ class ZohoCRMProvider(CRMProvider):
                         logger.warning(f"    ⚠️ Skipping {entity_type}: No name field found")
                         continue
                 
-                # Build COQL query
+                # Build COQL query with dynamic field list
                 select_fields = ["id"]
                 
                 if entity_type in ["Contacts", "Leads"]:
@@ -474,6 +476,7 @@ class ZohoCRMProvider(CRMProvider):
                     if resolved_fields.get("name"):
                         select_fields.append(resolved_fields["name"])
                 
+                # Only add fields that were successfully resolved
                 if resolved_fields.get("email"):
                     select_fields.append(resolved_fields["email"])
                 if resolved_fields.get("amount"):
@@ -489,11 +492,20 @@ class ZohoCRMProvider(CRMProvider):
                 if resolved_fields.get("related"):
                     select_fields.append(resolved_fields["related"])
                 
-                query = f"SELECT {', '.join(select_fields)} FROM {module_name} LIMIT 200"
+                # Build query with WHERE clause (required by Zoho COQL)
+                query = f"SELECT {', '.join(select_fields)} FROM {module_name} WHERE id is not null LIMIT 200"
                 logger.debug(f"    Query: {query}")
                 
                 # Execute query
                 data = self.execute_raw_query(query)
+                
+                # Check if query failed (empty result might mean COQL not supported)
+                if not data and module_name in ["Zoho_Books", "Subscriptions__s"]:
+                    logger.warning(
+                        f"    ⚠️ Skipping {entity_type} (module: {module_name}): "
+                        f"COQL not supported for Finance modules"
+                    )
+                    continue
                 
                 # Process records
                 for record in data:
@@ -502,36 +514,61 @@ class ZohoCRMProvider(CRMProvider):
                         "type": entity_type.rstrip("s") if entity_type not in ["Events", "Invoices", "Subscriptions"] else entity_type,
                     }
                     
-                    # Extract name
+                    # Extract name (safe access with None checks)
                     if entity_type in ["Contacts", "Leads"]:
-                        first = record.get(resolved_fields.get("first_name"), "")
-                        last = record.get(resolved_fields.get("last_name"), "")
+                        first_field = resolved_fields.get("first_name")
+                        last_field = resolved_fields.get("last_name")
+                        first = record.get(first_field, "") if first_field else ""
+                        last = record.get(last_field, "") if last_field else ""
                         entity["name"] = f"{first} {last}".strip() or f"Unknown {entity_type}"
                     else:
-                        entity["name"] = record.get(resolved_fields.get("name"), f"Unknown {entity_type}")
+                        name_field = resolved_fields.get("name")
+                        if name_field:
+                            entity["name"] = record.get(name_field, f"Unknown {entity_type}")
+                        else:
+                            entity["name"] = f"Unknown {entity_type}"
                     
-                    # Extract optional fields
-                    if resolved_fields.get("email"):
-                        entity["email"] = record.get(resolved_fields["email"])
+                    # Extract optional fields (only if field was resolved)
+                    email_field = resolved_fields.get("email")
+                    if email_field:
+                        email_value = record.get(email_field)
+                        if email_value:
+                            entity["email"] = email_value
                     
-                    if resolved_fields.get("amount"):
-                        entity["amount"] = record.get(resolved_fields["amount"])
+                    amount_field = resolved_fields.get("amount")
+                    if amount_field:
+                        amount_value = record.get(amount_field)
+                        if amount_value is not None:
+                            entity["amount"] = amount_value
                     
-                    if resolved_fields.get("stage"):
-                        entity["stage"] = record.get(resolved_fields["stage"])
+                    stage_field = resolved_fields.get("stage")
+                    if stage_field:
+                        stage_value = record.get(stage_field)
+                        if stage_value:
+                            entity["stage"] = stage_value
                     
-                    if resolved_fields.get("status"):
-                        entity["status"] = record.get(resolved_fields["status"])
+                    status_field = resolved_fields.get("status")
+                    if status_field:
+                        status_value = record.get(status_field)
+                        if status_value:
+                            entity["status"] = status_value
                     
-                    if resolved_fields.get("total"):
-                        entity["total"] = record.get(resolved_fields["total"])
+                    total_field = resolved_fields.get("total")
+                    if total_field:
+                        total_value = record.get(total_field)
+                        if total_value is not None:
+                            entity["total"] = total_value
                     
-                    if resolved_fields.get("start_time"):
-                        entity["start_time"] = record.get(resolved_fields["start_time"])
+                    start_time_field = resolved_fields.get("start_time")
+                    if start_time_field:
+                        start_time_value = record.get(start_time_field)
+                        if start_time_value:
+                            entity["start_time"] = start_time_value
                     
-                    # Extract relationship
-                    if resolved_fields.get("related"):
-                        related_value = record.get(resolved_fields["related"])
+                    # Extract relationship (safe access)
+                    related_field = resolved_fields.get("related")
+                    if related_field:
+                        related_value = record.get(related_field)
                         if related_value:
                             # Handle both dict (lookup) and string formats
                             if isinstance(related_value, dict) and related_value.get("id"):
@@ -545,6 +582,19 @@ class ZohoCRMProvider(CRMProvider):
                 
                 logger.info(f"    ✅ Fetched {len(data)} {entity_type}")
                 
+            except ZohoAPIError as e:
+                # Handle Finance modules that don't support COQL
+                error_msg = str(e).lower()
+                if module_name in ["Zoho_Books", "Subscriptions__s"] and ("not_supported" in error_msg or "400" in str(e)):
+                    logger.warning(
+                        f"    ⚠️ Skipping {entity_type} (module: {module_name}): "
+                        f"Finance module doesn't support COQL queries"
+                    )
+                    continue
+                else:
+                    logger.error(f"❌ Zoho API error fetching {entity_type}: {e}")
+                    continue
+                    
             except Exception as e:
                 logger.error(f"❌ Error fetching {entity_type}: {e}", exc_info=True)
                 continue
