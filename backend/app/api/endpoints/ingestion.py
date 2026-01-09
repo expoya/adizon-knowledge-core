@@ -536,10 +536,12 @@ async def sync_crm_entities(
                 # Create relationships with proper target label
                 if direction == "OUTGOING":
                     # (source)-[edge]->(target)
+                    # NOTE: Using MATCH (not MERGE) for target to avoid orphan nodes
+                    # Relationships are only created if both source AND target exist
                     cypher_query = f"""
                     UNWIND $batch as row
                     MATCH (a {{source_id: row.source_id}})
-                    MERGE (b:{safe_target_label} {{source_id: row.target_id}})
+                    MATCH (b:{safe_target_label} {{source_id: row.target_id}})
                     MERGE (a)-[r:{safe_edge}]->(b)
                     ON CREATE SET r.created_at = datetime()
                     RETURN count(r) as count
@@ -555,10 +557,12 @@ async def sync_crm_entities(
                 
                 elif direction == "INCOMING":
                     # (target)-[edge]->(source)
+                    # NOTE: Using MATCH (not MERGE) for target to avoid orphan nodes
+                    # Relationships are only created if both source AND target exist
                     cypher_query = f"""
                     UNWIND $batch as row
                     MATCH (a {{source_id: row.source_id}})
-                    MERGE (b:{safe_target_label} {{source_id: row.target_id}})
+                    MATCH (b:{safe_target_label} {{source_id: row.target_id}})
                     MERGE (b)-[r:{safe_edge}]->(a)
                     ON CREATE SET r.created_at = datetime()
                     RETURN count(r) as count
