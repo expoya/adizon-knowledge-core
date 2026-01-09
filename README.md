@@ -143,10 +143,17 @@ Copy `.env.example` to `.env` and configure:
 
 ## 📚 Documentation
 
+**➡️ [Vollständige Dokumentation](docs/README.md)** - Übersicht aller Dokumentationen
+
+### Wichtigste Guides:
 - **[Agentic RAG Guide](docs/AGENTIC_RAG.md)** - Comprehensive guide to v2.0 features
 - **[Architecture](docs/ARCHITECTURE.md)** - System architecture and data flows
 - **[API Reference](docs/API.md)** - Complete API documentation
 - **[Deployment](docs/DEPLOYMENT.md)** - Deployment instructions
+- **[Graph Schema](docs/GRAPH_SCHEMA.md)** - Neo4j Schema V2.0 (12+ Node Types)
+- **[Zoho CRM Setup](docs/implementation-guides/OAUTH_SCOPE_GUIDE.md)** - OAuth & Integration Guide
+- **[Troubleshooting](docs/troubleshooting/)** - Bekannte Probleme & Lösungen
+- **[Changelogs](docs/changelogs/)** - Chronologische Updates
 
 ## API Endpoints
 

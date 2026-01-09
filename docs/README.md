@@ -1,261 +1,107 @@
-# Adizon Enterprise-Intelligence-System - Dokumentation
+# Adizon Knowledge Core - Dokumentation
 
-**Version 2.0** - Agentic RAG Architecture 🚀
-
-## 🎯 Start Here
-
-| Dein Ziel | Empfohlene Dokumentation |
-|-----------|-------------------------|
-| **Schnellstart** | 👉 [QUICK_START.md](QUICK_START.md) - In 10 Minuten starten |
-| **Agentic RAG verstehen** | 👉 [AGENTIC_RAG.md](AGENTIC_RAG.md) - Vollständiger Guide |
-| **System-Architektur** | 👉 [ARCHITECTURE.md](ARCHITECTURE.md) - Technische Details |
-| **API nutzen** | 👉 [API.md](API.md) - REST API Reference |
-| **Deployment** | 👉 [DEPLOYMENT.md](DEPLOYMENT.md) - Local, Docker, Railway |
-
----
+Willkommen zur Dokumentation des Adizon Knowledge Core Systems!
 
 ## 📚 Hauptdokumentation
 
-### Neu in Version 2.0+
+### Architektur & Konzepte
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System-Architektur und Datenflüsse
+- **[AGENTIC_RAG.md](AGENTIC_RAG.md)** - Agentic RAG v2.0 Features & Workflow
+- **[GRAPH_SCHEMA.md](GRAPH_SCHEMA.md)** - Neo4j Graph Schema (12+ Node Types, 14 Relationships)
+- **[ONTOLOGY.md](ONTOLOGY.md)** - Ontologie und Entity-Definitionen
 
-| Dokument | Beschreibung |
-|----------|--------------|
-| **[GRAPH_SCHEMA.md](GRAPH_SCHEMA.md)** | ✨ **NEU V2.1:** Complete Neo4j Graph Schema Documentation |
-| **[AGENTIC_RAG.md](AGENTIC_RAG.md)** | ✨ **NEU:** Kompletter Guide zur Agentic RAG Architektur |
-| **[QUICK_START.md](QUICK_START.md)** | ✨ **NEU:** 10-Minuten Quick Start Guide |
-
-### Kern-Dokumentation
-
-| Dokument | Beschreibung |
-|----------|--------------|
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | 🔄 **Aktualisiert:** Systemarchitektur, Tech Stack, Datenfluss, Agentic RAG |
-| **[API.md](API.md)** | REST API Reference und Beispiele |
-| **[DEPLOYMENT.md](DEPLOYMENT.md)** | Deployment Guide (Local, Docker, Railway) |
-| **[ONTOLOGY.md](ONTOLOGY.md)** | Ontology-Konfiguration für Multi-Tenant |
-
-### Änderungsprotokolle
-
-| Dokument | Beschreibung |
-|----------|--------------|
-| **[2026-01-10: Graph Schema V2](changelogs/2026-01-10_graph-schema-v2.md)** | ✨ **NEU:** Typed Graph Schema, 12+ Node Types, Batch Processing |
-| **[2026-01-08: CRM Integration](changelogs/2026-01-08_crm-integration.md)** | ✨ **NEU:** Modular CRM Plugin System (Zoho) |
-| **[2026-01-08: Agentic RAG v2.0](changelogs/2026-01-08_agentic-rag-v2.md)** | ✨ **NEU:** Version 2.0 Release Notes |
-| [2025-01-04: Hybrid Architecture](changelogs/2025-01-04_hybrid-architecture.md) | Multi-Tenant Ontology, Trooper Worker |
+### API & Integration
+- **[API.md](API.md)** - Vollständige API-Referenz
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment-Anleitung (Railway, Docker)
+- **[LANGSMITH_TRACING.md](LANGSMITH_TRACING.md)** - LangSmith Tracing Setup
+- **[QUICK_START.md](QUICK_START.md)** - Schnellstart-Anleitung
 
 ---
 
-## 🎓 Lernpfade
+## 📋 Changelogs
+
+Chronologische Übersicht aller wichtigen Updates:
+
+- **[2026-01-10: Graph Schema V2](changelogs/2026-01-10_graph-schema-v2.md)** - Typisiertes Neo4j Schema mit Multi-Label Nodes
+- **[2026-01-09: Phase 1 Success](changelogs/2026-01-09_phase1-success.md)** - Vollständiger CRM-Import erfolgreich (5.100+ Entities)
+- **[2026-01-09: Phase 1 Complete](changelogs/2026-01-09_phase1-complete.md)** - Technische Details zum Full Import
+- **[2026-01-08: CRM Integration](changelogs/2026-01-08_crm-integration.md)** - Zoho CRM Plugin-System v2.1
+- **[2026-01-08: Agentic RAG v2](changelogs/2026-01-08_agentic-rag-v2.md)** - LangGraph-basiertes Routing
+- **[2025-01-04: Hybrid Architecture](changelogs/2025-01-04_hybrid-architecture.md)** - Vector + Graph Hybrid-Ansatz
+
+---
+
+## 🛠️ Implementation Guides
+
+Schritt-für-Schritt Anleitungen für spezifische Features:
+
+### Zoho CRM Integration
+- **[OAUTH_SCOPE_GUIDE.md](implementation-guides/OAUTH_SCOPE_GUIDE.md)** - OAuth2 Setup für Zoho (Scopes, Token-Generierung)
+- **[ZOHO_BOOKS_SETUP.md](implementation-guides/ZOHO_BOOKS_SETUP.md)** - Zoho Books API Integration
+- **[ZOHO_FINANCE_EMAILS_RESEARCH.md](implementation-guides/ZOHO_FINANCE_EMAILS_RESEARCH.md)** - Invoices, Subscriptions & Emails
+- **[REST_API_MODULES.md](implementation-guides/REST_API_MODULES.md)** - REST API Support für Finance-Module
+
+---
+
+## 🐛 Troubleshooting
+
+Bekannte Probleme und deren Lösungen:
+
+- **[ORPHAN_NODES_FIX.md](troubleshooting/ORPHAN_NODES_FIX.md)** - Fix für CRMEntity Orphan Nodes (MERGE → MATCH)
+- **[ZOHO_COQL_LIMITATION.md](troubleshooting/ZOHO_COQL_LIMITATION.md)** - COQL Lookup-Felder Limitation (owner_name NULL)
+- **[SMOKE_TEST_FIXES.md](troubleshooting/SMOKE_TEST_FIXES.md)** - Datenqualitäts-Fixes (Lead Names, created_time)
+- **[CHECK_EMAILS_MODULE.md](troubleshooting/CHECK_EMAILS_MODULE.md)** - Email-Modul Recherche (Related Lists)
+
+---
+
+## 📦 Archiv
+
+Nicht mehr aktuelle Dokumentation (historisch):
+
+- **[SMOKE_TEST.md](archive/SMOKE_TEST.md)** - Smoke Test Dokumentation (LIMIT 50)
+- **[README_SMOKE_TEST.md](archive/README_SMOKE_TEST.md)** - Smoke Test Quick Start
+- **[TEST_CHECKLIST.md](archive/TEST_CHECKLIST.md)** - Test-Checkliste Smoke → Full Import
+
+---
+
+## 🚀 Quick Links
 
 ### Für Entwickler
+1. Start: [QUICK_START.md](QUICK_START.md)
+2. API: [API.md](API.md)
+3. Architektur: [ARCHITECTURE.md](ARCHITECTURE.md)
 
-1. **Basics verstehen**
-   - 📖 Start: [QUICK_START.md](QUICK_START.md)
-   - 📖 Dann: [ARCHITECTURE.md](ARCHITECTURE.md) - System Overview
+### Für Admins
+1. Deployment: [DEPLOYMENT.md](DEPLOYMENT.md)
+2. CRM Setup: [implementation-guides/OAUTH_SCOPE_GUIDE.md](implementation-guides/OAUTH_SCOPE_GUIDE.md)
+3. Monitoring: [LANGSMITH_TRACING.md](LANGSMITH_TRACING.md)
 
-2. **Agentic RAG im Detail**
-   - 📖 [AGENTIC_RAG.md](AGENTIC_RAG.md) - Kompletter Guide
-   - 💻 Code: `backend/app/graph/chat_workflow.py`
-   - 🔧 Tools: `backend/app/tools/`
-
-3. **API Integration**
-   - 📖 [API.md](API.md)
-   - 🌐 Interactive Docs: http://localhost:8000/docs
-
-### Für Administratoren
-
-1. **Setup & Deployment**
-   - 📖 [QUICK_START.md](QUICK_START.md)
-   - 📖 [DEPLOYMENT.md](DEPLOYMENT.md)
-
-2. **Konfiguration**
-   - 📄 `backend/.env` - Environment Variables
-   - 📄 `backend/app/config/external_sources.yaml` - SQL Sources
-   - 📄 `backend/app/config/ontology_voltage.yaml` - Knowledge Graph
-
-3. **Troubleshooting**
-   - 📖 [AGENTIC_RAG.md - Troubleshooting](AGENTIC_RAG.md#troubleshooting)
-   - 📖 [DEPLOYMENT.md - Troubleshooting](DEPLOYMENT.md#troubleshooting)
+### Bei Problemen
+1. Troubleshooting: [troubleshooting/](troubleshooting/)
+2. Changelogs: [changelogs/](changelogs/)
+3. GitHub Issues
 
 ---
 
-## 🆕 Was ist neu in Version 2.0?
+## 📊 Aktueller Status
 
-### Agentic RAG Architecture
+**Version:** 2.1 (Agentic RAG + CRM Integration)
 
-**Vorher (v1.0):** Simple Hybrid RAG
-```
-Query → Vector Search → Graph Search → LLM → Answer
-```
+**Features:**
+- ✅ Agentic RAG mit LangGraph
+- ✅ Zoho CRM Integration (11+ Module)
+- ✅ Graph Schema V2 (Multi-Label Nodes)
+- ✅ Full CRM Import (5.100+ Entities)
+- ✅ Incremental Sync (Modified_Time Filter)
+- ✅ Zoho Books Integration (600+ Invoices)
+- ⏳ Email Fetching (Related Lists)
 
-**Jetzt (v2.0):** Intelligentes Agentic System
-```
-Query → Router (LLM) → [SQL | Knowledge] → Generator → Answer
-                          ↓          ↓
-                     External DB  Vector+Graph
-```
-
-### Hauptfeatures
-
-- 🤖 **LangGraph-basierter Agent** mit autonomem Routing
-- 🗄️ **SQL Query Generation** aus natürlicher Sprache
-- 🔍 **Multi-Source Intelligence** (Dokumente + Graphs + Datenbanken)
-- 🌊 **Smart Streaming** ohne interne Leaks
-- 📊 **Schema Discovery** für externe Datenquellen
-- 🛡️ **Enterprise Security** mit Query-Validierung
-
-**Mehr Details:** [Version 2.0 Changelog](changelogs/2026-01-08_agentic-rag-v2.md)
+**Nächste Schritte:**
+- Phase 2: Incremental Sync Optimierung
+- Phase 3: Custom Fields Discovery
+- Phase 4: Monitoring & Alerting
 
 ---
 
-## 🏗️ Projekt-Struktur
-
-```
-adizon-knowledge-core/
-├── backend/                    # FastAPI Backend
-│   └── app/
-│       ├── api/endpoints/      # REST Endpoints
-│       ├── graph/             # ✨ LangGraph Workflows
-│       │   └── chat_workflow.py    # Agentic RAG Workflow
-│       ├── tools/             # ✨ Agent Tools (NEW)
-│       │   ├── knowledge.py
-│       │   └── sql.py
-│       ├── services/          # Business Logic
-│       │   ├── metadata_store.py   # ✨ External Sources (NEW)
-│       │   └── sql_connector.py    # ✨ SQL Connections (NEW)
-│       ├── core/
-│       │   └── llm.py         # ✨ LLM Factory (NEW)
-│       └── config/            # Configuration
-│           ├── ontology_voltage.yaml
-│           └── external_sources.yaml  # ✨ SQL Config (NEW)
-├── frontend/                  # React Frontend
-├── deployment/                # Deployment Configs
-├── docs/                      # Dokumentation (hier!)
-└── docker-compose.yml         # Local Stack
-```
-
----
-
-## 🔗 Quick Links
-
-### Development
-
-- [Lokale Entwicklung starten](QUICK_START.md#step-4-start-backend)
-- [API Endpoints](API.md)
-- [Architektur-Übersicht](ARCHITECTURE.md#overview)
-- [Agent Workflow](AGENTIC_RAG.md#workflow-execution-flow)
-
-### Configuration
-
-- [Environment Variables](QUICK_START.md#step-2-configure-environment)
-- [External Sources Setup](AGENTIC_RAG.md#external-source-configuration)
-- [Ontologie konfigurieren](ONTOLOGY.md#neue-ontologie-erstellen)
-
-### Deployment
-
-- [Docker Deployment](DEPLOYMENT.md#docker-deployment)
-- [Railway Deployment](DEPLOYMENT.md#railway-deployment)
-- [Worker deployen](DEPLOYMENT.md#trooper-worker-deployment)
-
----
-
-## 📊 System-Übersicht
-
-### Architektur-Schichten
-
-```mermaid
-graph TB
-    UI[Frontend - React]
-    API[Backend - FastAPI]
-    AGENT[Agentic RAG - LangGraph]
-    TOOLS[Agent Tools]
-    DATA[Data Sources]
-    
-    UI <--> API
-    API --> AGENT
-    AGENT --> TOOLS
-    TOOLS --> DATA
-    
-    subgraph Data Sources
-        VEC[(Vector Store)]
-        GRAPH[(Knowledge Graph)]
-        SQL[(External DBs)]
-    end
-```
-
-**Mehr Details:** [ARCHITECTURE.md](ARCHITECTURE.md)
-
----
-
-## 🎯 Feature-Matrix
-
-| Feature | v1.0 | v2.0 |
-|---------|------|------|
-| Vector Search | ✅ | ✅ |
-| Knowledge Graph | ✅ | ✅ |
-| Document Upload | ✅ | ✅ |
-| Entity Extraction | ✅ | ✅ |
-| **Agentic Routing** | ❌ | ✅ |
-| **SQL Integration** | ❌ | ✅ |
-| **LangGraph Workflow** | ❌ | ✅ |
-| **Multi-Source Intelligence** | ❌ | ✅ |
-| **Smart Streaming** | ❌ | ✅ |
-
----
-
-## 🆘 Support & Troubleshooting
-
-### Häufige Probleme
-
-| Problem | Lösung |
-|---------|--------|
-| Backend startet nicht | [Quick Start - Troubleshooting](QUICK_START.md#troubleshooting) |
-| SQL Queries funktionieren nicht | [Agentic RAG - SQL Troubleshooting](AGENTIC_RAG.md#issue-sql-query-fails) |
-| LLM Errors | [Quick Start - LLM Errors](QUICK_START.md#llm-errors) |
-| Keine Tabellen gefunden | [Agentic RAG - No Tables Found](AGENTIC_RAG.md#issue-no-relevant-tables-found) |
-
-### Weitere Hilfe
-
-- 📖 [Vollständiges Troubleshooting](AGENTIC_RAG.md#troubleshooting)
-- 🐛 [GitHub Issues](https://github.com/expoya/adizon-knowledge-core/issues)
-- 📧 Support: support@adizon.de
-
----
-
-## 📈 Roadmap
-
-### Phase 4: True Hybrid Mode (Q1 2026)
-- [ ] Parallele Ausführung von SQL + Knowledge
-- [ ] Cross-Source Joins
-- [ ] Unified Context Ranking
-
-### Phase 5: Advanced Features (Q2 2026)
-- [ ] Query Result Caching
-- [ ] Multi-Step SQL Reasoning
-- [ ] Schema Evolution Tracking
-- [ ] User Feedback Loop
-
-### Phase 6: Enterprise (Q3 2026)
-- [ ] RBAC (Role-Based Access Control)
-- [ ] Audit Logging
-- [ ] Cost Estimation
-- [ ] Multi-Tenant Isolation
-
----
-
-## 📄 License
-
-Proprietary - Adizon GmbH
-
----
-
-## 👥 Team
-
-**Entwicklung:** Adizon Development Team  
-**Dokumentation:** AI-Assisted  
-**Maintainer:** Michael Schiestl
-
----
-
-**Version:** 2.0.0  
-**Last Updated:** January 8, 2026  
-**Status:** ✅ Production Ready
+**Letzte Aktualisierung:** 2026-01-09  
+**Maintainer:** Adizon GmbH

@@ -30,6 +30,7 @@ from app.db.session import get_async_session
 from app.graph.ingestion_workflow import run_ingestion_workflow
 from app.models.document import DocumentStatus, KnowledgeDocument
 from app.services.crm_factory import get_crm_provider, is_crm_available
+from app.services.crm_sync import CRMSyncOrchestrator
 from app.services.graph_store import GraphStoreService, get_graph_store_service
 from app.services.storage import MinioService, get_minio_service
 from app.services.vector_store import VectorStoreService, get_vector_store_service
@@ -333,19 +334,25 @@ async def sync_crm_entities(
         }
     """
     logger.info("🔄 CRM Sync: Starting synchronization")
+    logger.debug(f"Request entity_types: {request.entity_types}")
     
     # Check if CRM is available
+    logger.debug("Checking CRM availability...")
     if not is_crm_available():
+        logger.error("❌ CRM not available - ACTIVE_CRM_PROVIDER not configured")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="CRM ist nicht konfiguriert. Bitte ACTIVE_CRM_PROVIDER setzen.",
         )
+    logger.debug("✓ CRM is available")
     
     try:
         # Get CRM provider
+        logger.debug("Getting CRM provider...")
         provider = get_crm_provider()
         
         if not provider:
+            logger.error("❌ CRM provider is None")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="CRM Provider konnte nicht geladen werden",
@@ -353,298 +360,26 @@ async def sync_crm_entities(
         
         provider_name = provider.get_provider_name()
         logger.info(f"📞 Using CRM provider: {provider_name}")
+        logger.debug(f"Provider type: {type(provider).__name__}")
         
-        # === INCREMENTAL SYNC: Get last sync timestamp ===
-        last_sync_time = await graph_store.get_last_sync_time("crm_sync")
+        # Create orchestrator and execute sync
+        logger.debug("Creating CRMSyncOrchestrator...")
+        orchestrator = CRMSyncOrchestrator(graph_store)
+        logger.debug("✓ Orchestrator created")
         
-        if last_sync_time:
-            logger.info(f"🔄 INCREMENTAL SYNC: Fetching records modified since {last_sync_time}")
-        else:
-            logger.info(f"📥 FULL SYNC: First sync or no previous timestamp found")
+        logger.info("🚀 Starting sync workflow...")
+        result = await orchestrator.sync(provider, request.entity_types)
+        logger.info(f"✅ Sync completed: {result.status}")
         
-        # Fetch skeleton data (with optional incremental filter)
-        logger.info(f"📥 Fetching skeleton data for: {request.entity_types or 'default types'}")
-        skeleton_data = await provider.fetch_skeleton_data(
-            entity_types=request.entity_types,
-            last_sync_time=last_sync_time
-        )
-        
-        if not skeleton_data:
-            return CRMSyncResponse(
-                status="success",
-                entities_synced=0,
-                entities_created=0,
-                entities_updated=0,
-                entity_types=request.entity_types or [],
-                message="No entities found in CRM",
-            )
-        
-        logger.info(f"✅ Fetched {len(skeleton_data)} entities from CRM")
-        
-        # Helper: Sanitize properties for Neo4j (primitives only)
-        def _sanitize_properties(props: dict) -> dict:
-            """
-            Sanitize properties for Neo4j storage.
-            
-            Neo4j properties must be primitives (str, int, float, bool) or arrays thereof.
-            Converts dicts to JSON strings or extracts IDs from lookup fields.
-            """
-            sanitized = {}
-            for key, value in props.items():
-                if value is None:
-                    continue  # Skip None values
-                elif isinstance(value, dict):
-                    # Zoho lookup field: {"id": "...", "name": "..."}
-                    # Extract ID if present, otherwise serialize to JSON
-                    if "id" in value:
-                        sanitized[f"{key}_id"] = str(value["id"])
-                        if "name" in value:
-                            sanitized[f"{key}_name"] = str(value["name"])
-                    else:
-                        # Generic dict: serialize to JSON string
-                        sanitized[key] = json.dumps(value)
-                elif isinstance(value, list):
-                    # Check if list contains dicts
-                    if value and isinstance(value[0], dict):
-                        # Array of dicts: serialize to JSON string
-                        sanitized[key] = json.dumps(value)
-                    else:
-                        # Primitive array: keep as-is
-                        sanitized[key] = value
-                elif isinstance(value, (str, int, float, bool)):
-                    # Primitive: keep as-is
-                    sanitized[key] = value
-                else:
-                    # Unknown type: convert to string
-                    sanitized[key] = str(value)
-            return sanitized
-        
-        # Sync to Neo4j with structured graph schema
-        entities_created = 0
-        entities_updated = 0
-        errors = []
-        synced_types = set()
-        failed_entities = []  # Track failed entities with details
-        
-        # Step 1: Group entities by label for batch processing
-        entities_by_label = {}
-        all_relations = []
-        
-        for entity in skeleton_data:
-            try:
-                label = entity.get("label")
-                if not label:
-                    logger.warning(f"⚠️ Skipping entity without label: {entity}")
-                    continue
-                
-                synced_types.add(label)
-                
-                # Group by label
-                if label not in entities_by_label:
-                    entities_by_label[label] = []
-                
-                # Sanitize properties before storing
-                raw_props = entity.get("properties", {})
-                sanitized_props = _sanitize_properties(raw_props)
-                
-                entities_by_label[label].append({
-                    "source_id": entity["source_id"],
-                    "properties": sanitized_props
-                })
-                
-                # Collect relations
-                for rel in entity.get("relations", []):
-                    all_relations.append({
-                        "source_id": entity["source_id"],
-                        "target_id": rel["target_id"],
-                        "edge_type": rel["edge_type"],
-                        "target_label": rel.get("target_label", "CRMEntity"),
-                        "direction": rel["direction"]
-                    })
-                    
-            except Exception as e:
-                entity_id = entity.get("source_id", "unknown")
-                error_msg = f"Entity {entity_id}: {str(e)}"
-                logger.error(f"❌ Error processing entity: {error_msg}")
-                errors.append(error_msg)
-                failed_entities.append({
-                    "source_id": entity_id,
-                    "label": entity.get("label"),
-                    "error": str(e)
-                })
-                continue
-        
-        logger.info(f"📊 Grouped into {len(entities_by_label)} labels with {len(all_relations)} relations")
-        
-        # Step 2: Create nodes per label (batch UNWIND)
-        for label, entities in entities_by_label.items():
-            try:
-                # Sanitize label (alphanumeric only)
-                safe_label = ''.join(c for c in label if c.isalnum() or c == '_')
-                
-                # Add CRMEntity as secondary label for polymorphic relations
-                # Exception: User nodes don't need CRMEntity label
-                labels_string = f"{safe_label}:CRMEntity" if safe_label != "User" else safe_label
-                
-                # Build dynamic MERGE query with label(s)
-                # Note: Labels can't be parameterized in Cypher, so we use string formatting
-                # This is safe because we sanitize the label above
-                cypher_query = f"""
-                UNWIND $batch as row
-                MERGE (n:{labels_string} {{source_id: row.source_id}})
-                ON CREATE SET
-                    n += row.properties,
-                    n.created_at = datetime(),
-                    n.synced_at = datetime(),
-                    n.source = $source
-                ON MATCH SET
-                    n += row.properties,
-                    n.synced_at = datetime()
-                RETURN count(n) as count,
-                       sum(CASE WHEN n.created_at = n.synced_at THEN 1 ELSE 0 END) as created,
-                       sum(CASE WHEN n.created_at <> n.synced_at THEN 1 ELSE 0 END) as updated
-                """
-                
-                result = await graph_store.query(
-                    cypher_query,
-                    parameters={
-                        "batch": entities,
-                        "source": provider_name
-                    }
-                )
-                
-                if result and len(result) > 0:
-                    entities_created += result[0].get("created", 0)
-                    entities_updated += result[0].get("updated", 0)
-                    logger.info(f"  ✅ {label}: {result[0].get('count', 0)} nodes ({result[0].get('created', 0)} created)")
-                    
-            except Exception as e:
-                error_msg = f"Error syncing {label} nodes ({len(entities)} entities): {str(e)}"
-                logger.error(f"❌ {error_msg}")
-                errors.append(error_msg)
-                # Track all entities in this batch as failed
-                for entity in entities:
-                    failed_entities.append({
-                        "source_id": entity.get("source_id"),
-                        "label": label,
-                        "error": f"Batch sync failed: {str(e)}"
-                    })
-                continue
-        
-        # Step 3: Create relationships grouped by edge type + target label
-        # Group by (edge_type, target_label, direction) for proper typing
-        relations_by_key = {}
-        for rel in all_relations:
-            key = (rel["edge_type"], rel.get("target_label", "CRMEntity"), rel["direction"])
-            if key not in relations_by_key:
-                relations_by_key[key] = []
-            relations_by_key[key].append(rel)
-        
-        logger.info(f"🔗 Creating {len(all_relations)} relationships across {len(relations_by_key)} relation types")
-        
-        for (edge_type, target_label, direction), relations in relations_by_key.items():
-            try:
-                # Sanitize edge type and label
-                safe_edge = ''.join(c for c in edge_type if c.isalnum() or c == '_')
-                safe_target_label = ''.join(c for c in target_label if c.isalnum() or c == '_')
-                
-                # Create relationships with proper target label
-                if direction == "OUTGOING":
-                    # (source)-[edge]->(target)
-                    # NOTE: Using MATCH (not MERGE) for target to avoid orphan nodes
-                    # Relationships are only created if both source AND target exist
-                    cypher_query = f"""
-                    UNWIND $batch as row
-                    MATCH (a {{source_id: row.source_id}})
-                    MATCH (b:{safe_target_label} {{source_id: row.target_id}})
-                    MERGE (a)-[r:{safe_edge}]->(b)
-                    ON CREATE SET r.created_at = datetime()
-                    RETURN count(r) as count
-                    """
-                    
-                    result = await graph_store.query(
-                        cypher_query,
-                        parameters={"batch": relations}
-                    )
-                    
-                    if result and len(result) > 0:
-                        logger.info(f"  ✅ {edge_type} → {target_label} (OUTGOING): {result[0].get('count', 0)} edges")
-                
-                elif direction == "INCOMING":
-                    # (target)-[edge]->(source)
-                    # NOTE: Using MATCH (not MERGE) for target to avoid orphan nodes
-                    # Relationships are only created if both source AND target exist
-                    cypher_query = f"""
-                    UNWIND $batch as row
-                    MATCH (a {{source_id: row.source_id}})
-                    MATCH (b:{safe_target_label} {{source_id: row.target_id}})
-                    MERGE (b)-[r:{safe_edge}]->(a)
-                    ON CREATE SET r.created_at = datetime()
-                    RETURN count(r) as count
-                    """
-                    
-                    result = await graph_store.query(
-                        cypher_query,
-                        parameters={"batch": relations}
-                    )
-                    
-                    if result and len(result) > 0:
-                        logger.info(f"  ✅ {target_label} → {edge_type} (INCOMING): {result[0].get('count', 0)} edges")
-                    
-            except Exception as e:
-                error_msg = f"Error creating {edge_type} → {target_label} relationships: {str(e)}"
-                logger.error(f"❌ {error_msg}")
-                errors.append(error_msg)
-                continue
-        
-        total_synced = entities_created + entities_updated
-        total_failed = len(failed_entities)
-        
-        # Build detailed status message
-        if total_failed > 0:
-            status_msg = (
-                f"Partial sync completed: {total_synced} entities synced "
-                f"({entities_created} created, {entities_updated} updated), "
-                f"{total_failed} failed"
-            )
-        else:
-            status_msg = (
-                f"CRM Sync completed successfully: {total_synced} entities synced "
-                f"({entities_created} created, {entities_updated} updated)"
-            )
-        
-        logger.info(f"✅ {status_msg}")
-        
-        # === INCREMENTAL SYNC: Update last sync timestamp ===
-        try:
-            from datetime import datetime, timezone
-            current_time = datetime.now(timezone.utc).isoformat()
-            await graph_store.set_last_sync_time(current_time, "crm_sync")
-            logger.info(f"🔄 Updated last sync time: {current_time}")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to update last sync time: {e}")
-            # Don't fail the sync if timestamp update fails
-        
-        # Build error details with IDs
-        error_details = []
-        if failed_entities:
-            # Group failures by error type
-            for failure in failed_entities[:10]:  # Limit to first 10
-                error_details.append(
-                    f"{failure['label']} {failure['source_id']}: {failure['error']}"
-                )
-        
-        # Add generic errors
-        error_details.extend(errors[:5])  # Add up to 5 generic errors
-        
+        # Convert to API response format
         return CRMSyncResponse(
-            status="success" if not errors and not failed_entities else "partial_success",
-            entities_synced=total_synced,
-            entities_created=entities_created,
-            entities_updated=entities_updated,
-            entity_types=list(synced_types),
-            message=status_msg,
-            errors=error_details[:15],  # Limit total errors to 15
+            status=result.status,
+            entities_synced=result.entities_synced,
+            entities_created=result.entities_created,
+            entities_updated=result.entities_updated,
+            entity_types=result.entity_types,
+            message=result.message,
+            errors=result.errors
         )
         
     except HTTPException:
