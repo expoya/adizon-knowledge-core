@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api.endpoints import chat, graph, ingestion
+from app.api.endpoints import chat, graph, ingestion, health
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import async_engine
@@ -109,6 +109,7 @@ app.add_middleware(
 )
 
 # Include API routers
+app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(ingestion.router, prefix="/api/v1", tags=["Ingestion"])
 app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
 app.include_router(graph.router, prefix="/api/v1", tags=["Graph"])
