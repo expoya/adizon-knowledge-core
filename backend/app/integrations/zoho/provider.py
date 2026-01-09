@@ -171,11 +171,11 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # Fetch from Books API
                     if entity_type == "BooksInvoices":
-                        data = await self.books_client.fetch_all_invoices(max_pages=999)
+                        data = await self.books_client.fetch_all_invoices(max_pages=3)  # 3 pages × 200 = 600 max
                         for record in data:
                             results.append(process_books_invoice(record, label))
                     elif entity_type == "BooksSubscriptions":
-                        data = await self.books_client.fetch_all_subscriptions(max_pages=999)
+                        data = await self.books_client.fetch_all_subscriptions(max_pages=3)  # 3 pages × 200 = 600 max
                         for record in data:
                             results.append(process_books_subscription(record, label))
                     else:
@@ -196,8 +196,8 @@ class ZohoCRMProvider(CRMProvider):
                         self.client,
                         module_name,
                         fields,
-                        limit=200,  # Max 200 per page for REST API
-                        max_pages=999  # Fetch all pages (will stop when no more data)
+                        limit=200,  # REST API: 200 per page
+                        max_pages=3  # 3 pages × 200 = 600 records max per module
                     )
                 else:
                     # Regular CRM modules use COQL
@@ -213,8 +213,8 @@ class ZohoCRMProvider(CRMProvider):
                         module_name,
                         fields,
                         where_clause=where_clause,
-                        limit=2000,  # Zoho COQL max: 2,000 records per query
-                        max_pages=999  # Fetch all pages with pagination (OFFSET-based)
+                        limit=500,  # 500 records per module (safe limit for validation)
+                        max_pages=1  # 1 page only = 500 records max per module
                     )
                 
                 # === CHECK DATA ===
@@ -252,7 +252,7 @@ class ZohoCRMProvider(CRMProvider):
                     self.client,
                     accounts=accounts_data,
                     contacts=contacts_data,
-                    limit_per_entity=200  # Max 200 emails per Account/Contact
+                    limit_per_entity=50  # 50 emails per Account/Contact (validation phase)
                 )
                 
                 # Process emails
