@@ -79,6 +79,10 @@ class NodeBatchProcessor:
                     f"({result['created']} created, {result['updated']} updated)"
                 )
                 
+                # Update status tracker
+                from app.services.sync_status import sync_status
+                sync_status.update_node_processing(label, result['created'], result['updated'])
+                
             except Exception as e:
                 logger.error(f"  ❌ Failed to process {label} batch: {e}", exc_info=True)
                 total_failed += len(entities)

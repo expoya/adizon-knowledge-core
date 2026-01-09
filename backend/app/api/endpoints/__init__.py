@@ -1,4 +1,4 @@
 # API endpoint routers
-from . import chat, graph, ingestion, health, debug
+from . import chat, graph, ingestion, health, debug, sync_status
 
-__all__ = ["chat", "graph", "ingestion", "health", "debug"]
+__all__ = ["chat", "graph", "ingestion", "health", "debug", "sync_status"]

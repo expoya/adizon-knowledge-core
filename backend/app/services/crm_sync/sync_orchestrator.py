@@ -94,12 +94,17 @@ class CRMSyncOrchestrator:
         logger.info(f"🔄 CRM Sync: Starting synchronization with {provider_name}")
         logger.debug(f"Entity types requested: {entity_types or 'default'}")
         
+        # Start status tracking
+        from app.services.sync_status import sync_status, SyncPhase
+        sync_status.start_sync()
+        
         # Clear previous errors
         self.error_tracker.clear()
         
         try:
             # === PHASE 1: Fetch Data ===
             logger.debug("Phase 1: Fetching data from CRM...")
+            sync_status.update_phase(SyncPhase.FETCHING, "Fetching data from CRM...")
             last_sync_time = await self._get_last_sync_time()
             
             if last_sync_time:
@@ -130,7 +135,9 @@ class CRMSyncOrchestrator:
             
             # === PHASE 2: Prepare Data ===
             logger.debug("Phase 2: Preparing data (sanitizing properties, grouping)...")
+            sync_status.update_phase(SyncPhase.PREPARING, "Preparing data (sanitizing & grouping)...")
             entities_by_label, all_relations = self._prepare_data(skeleton_data)
+            sync_status.update_fetching("All entities", len(skeleton_data))
             
             logger.info(
                 f"📊 Grouped into {len(entities_by_label)} labels "
@@ -140,6 +147,7 @@ class CRMSyncOrchestrator:
             
             # === PHASE 3: Process Nodes ===
             logger.debug("Phase 3: Processing nodes...")
+            sync_status.update_phase(SyncPhase.PROCESSING_NODES, "Creating/updating nodes in graph...")
             node_result = await self.node_processor.process_nodes(
                 entities_by_label, provider_name
             )
@@ -147,6 +155,7 @@ class CRMSyncOrchestrator:
             
             # === PHASE 4: Process Relationships ===
             logger.debug("Phase 4: Processing relationships...")
+            sync_status.update_phase(SyncPhase.PROCESSING_RELATIONSHIPS, f"Creating {len(all_relations)} relationships...")
             rel_result = await self.relationship_processor.process_relationships(
                 all_relations
             )
@@ -154,19 +163,30 @@ class CRMSyncOrchestrator:
             
             # === PHASE 5: Update Sync Timestamp ===
             logger.debug("Phase 5: Updating sync timestamp...")
+            sync_status.update_phase(SyncPhase.UPDATING_METADATA, "Updating sync metadata...")
             await self._update_sync_timestamp()
             logger.debug("Sync timestamp updated")
             
             # === PHASE 6: Build Result ===
-            return self._build_result(
+            result = self._build_result(
                 node_result,
                 rel_result,
                 provider_name
             )
             
+            # Mark as completed
+            sync_status.complete_sync(success=True)
+            
+            return result
+            
         except Exception as e:
             logger.error(f"❌ CRM sync failed: {e}", exc_info=True)
             self.error_tracker.track_batch_error("sync_workflow", 0, e)
+            
+            # Mark as failed
+            from app.services.sync_status import sync_status
+            sync_status.add_error(str(e))
+            sync_status.complete_sync(success=False)
             
             return CRMSyncResult(
                 status="error",

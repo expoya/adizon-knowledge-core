@@ -92,6 +92,10 @@ class RelationshipProcessor:
                     f"{result['count']} relationships"
                 )
                 
+                # Update status tracker
+                from app.services.sync_status import sync_status
+                sync_status.update_relationship_processing(edge_type, result['count'])
+                
             except Exception as e:
                 logger.error(
                     f"  ❌ Failed to create {edge_type} → {target_label} relationships: {e}",
