@@ -208,23 +208,15 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # === INCREMENTAL SYNC: Add Modified_Time filter ===
                     if last_sync_time:
-                        # Convert ISO datetime to Zoho COQL format
-                        # Zoho COQL expects ISO format with 'T': YYYY-MM-DDTHH:MM:SS
-                        # NO timezone, NO nanoseconds
-                        from datetime import datetime
-                        try:
-                            # Parse the ISO datetime
-                            dt = datetime.fromisoformat(last_sync_time.replace('Z', '+00:00'))
-                            # Format for Zoho COQL: YYYY-MM-DDTHH:MM:SS (ISO without timezone/nanoseconds)
-                            zoho_date_str = dt.strftime('%Y-%m-%dT%H:%M:%S')
-                            where_clause += f" and Modified_Time > '{zoho_date_str}'"
-                            logger.info(f"    🔄 Incremental filter: Modified_Time > {zoho_date_str}")
-                        except Exception as e:
-                            logger.warning(f"    ⚠️ Failed to parse last_sync_time, skipping incremental filter: {e}")
+                        # CRITICAL: Use uppercase AND for COQL syntax!
+                        # CRITICAL: Use original ISO format (Zoho accepts it with nanoseconds!)
+                        where_clause += f" AND Modified_Time > '{last_sync_time}'"
+                        logger.info(f"    🔄 Incremental filter: Modified_Time > {last_sync_time}")
                     
                     # Special filter for Leads: Only import Leads created after 2024-04-01
+                    # CRITICAL: Use uppercase AND for COQL syntax!
                     if module_name == "Leads":
-                        where_clause += " and Created_Time > '2024-04-01T00:00:00'"
+                        where_clause += " AND Created_Time > '2024-04-01T00:00:00+00:00'"
                         logger.info(f"    📅 Leads date filter: Created_Time > 2024-04-01")
                     
                     data = await fetch_via_coql(
