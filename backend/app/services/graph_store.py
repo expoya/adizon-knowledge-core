@@ -267,8 +267,11 @@ class GraphStoreService:
         """
         Query the knowledge graph for information relevant to a question.
 
-        IMPORTANT: Only returns APPROVED nodes and relationships.
-        PENDING nodes are not visible to the chatbot until reviewed.
+        IMPORTANT: Returns APPROVED nodes and CRM nodes.
+        - Document-extracted nodes: Only APPROVED (not PENDING)
+        - CRM-synced nodes: Always visible (no status field)
+        
+        Logic: (status = 'APPROVED' OR status IS NULL)
 
         Uses SIMPLE Cypher queries to avoid syntax errors with local LLMs.
         No UNION, no complex subqueries - just straightforward MATCH patterns.
@@ -298,16 +301,19 @@ class GraphStoreService:
             logger.info(f"Graph query keywords: {all_keywords}")
 
             if not all_keywords:
-                # Fallback: get some APPROVED entities from the graph
-                logger.info("No keywords found, fetching recent APPROVED entities")
+                # Fallback: get some entities from the graph
+                # Include APPROVED nodes AND nodes without status (CRM entities)
+                logger.info("No keywords found, fetching recent entities")
                 result = await self._run_sync(
                     self.driver.execute_query,
                     """
                     MATCH (n)
-                    WHERE n.name IS NOT NULL AND n.status = 'APPROVED'
+                    WHERE n.name IS NOT NULL 
+                      AND (n.status = 'APPROVED' OR n.status IS NULL)
                     WITH n ORDER BY n.updated_at DESC LIMIT 10
                     OPTIONAL MATCH (n)-[r]->(m)
-                    WHERE m.status = 'APPROVED' AND r.status = 'APPROVED'
+                    WHERE (m.status = 'APPROVED' OR m.status IS NULL)
+                      AND (r.status = 'APPROVED' OR r.status IS NULL)
                     RETURN labels(n)[0] as type, n.name as name,
                            type(r) as relationship, m.name as related_to
                     LIMIT 20
@@ -315,7 +321,8 @@ class GraphStoreService:
                     database_="neo4j",
                 )
             else:
-                # SIMPLE Cypher: Search for APPROVED entities matching ANY keyword
+                # SIMPLE Cypher: Search for entities matching ANY keyword
+                # Include APPROVED nodes AND nodes without status (CRM entities)
                 # Use toLower for case-insensitive matching
                 # NO UNION - just one simple query with outgoing relationships
                 result = await self._run_sync(
@@ -323,11 +330,12 @@ class GraphStoreService:
                     """
                     MATCH (n)
                     WHERE n.name IS NOT NULL
-                      AND n.status = 'APPROVED'
+                      AND (n.status = 'APPROVED' OR n.status IS NULL)
                       AND ANY(keyword IN $keywords WHERE toLower(n.name) CONTAINS toLower(keyword))
                     WITH n LIMIT 10
                     OPTIONAL MATCH (n)-[r]->(m)
-                    WHERE m.status = 'APPROVED' AND r.status = 'APPROVED'
+                    WHERE (m.status = 'APPROVED' OR m.status IS NULL)
+                      AND (r.status = 'APPROVED' OR r.status IS NULL)
                     RETURN labels(n)[0] as type, n.name as name,
                            type(r) as relationship, m.name as related_to
                     LIMIT 20
@@ -344,9 +352,9 @@ class GraphStoreService:
                         """
                         MATCH (n)<-[r]-(m)
                         WHERE n.name IS NOT NULL
-                          AND n.status = 'APPROVED'
-                          AND m.status = 'APPROVED'
-                          AND r.status = 'APPROVED'
+                          AND (n.status = 'APPROVED' OR n.status IS NULL)
+                          AND (m.status = 'APPROVED' OR m.status IS NULL)
+                          AND (r.status = 'APPROVED' OR r.status IS NULL)
                           AND ANY(keyword IN $keywords WHERE toLower(n.name) CONTAINS toLower(keyword))
                         RETURN labels(n)[0] as type, n.name as name,
                                type(r) as relationship, m.name as related_from
@@ -397,12 +405,25 @@ class GraphStoreService:
             Summary string with entity counts
         """
         try:
-            # Get APPROVED counts
+            # Get APPROVED counts (document-extracted entities)
             approved_result = await self._run_sync(
                 self.driver.execute_query,
                 """
                 MATCH (n)
                 WHERE n.status = 'APPROVED'
+                RETURN labels(n)[0] as label, count(*) as count
+                ORDER BY count DESC
+                LIMIT 10
+                """,
+                database_="neo4j",
+            )
+            
+            # Get CRM counts (no status field)
+            crm_result = await self._run_sync(
+                self.driver.execute_query,
+                """
+                MATCH (n)
+                WHERE n.status IS NULL
                 RETURN labels(n)[0] as label, count(*) as count
                 ORDER BY count DESC
                 LIMIT 10
@@ -425,17 +446,25 @@ class GraphStoreService:
             if pending_result.records:
                 pending_count = pending_result.records[0]["pending_count"]
 
-            if not approved_result.records and pending_count == 0:
+            if not approved_result.records and not crm_result.records and pending_count == 0:
                 return "Graph is empty."
 
-            lines = ["Knowledge Graph (APPROVED):"]
+            lines = []
+            
+            # Show CRM entities (always visible)
+            if crm_result.records:
+                lines.append("Knowledge Graph (CRM - Always Visible):")
+                for record in crm_result.records:
+                    data = dict(record)
+                    lines.append(f"  - {data['count']} {data['label']}")
+            
+            # Show APPROVED entities (document-extracted)
             if approved_result.records:
+                lines.append("\nKnowledge Graph (Documents - APPROVED):")
                 for record in approved_result.records:
                     data = dict(record)
                     lines.append(f"  - {data['count']} {data['label']}")
-            else:
-                lines.append("  (keine freigegebenen Entitäten)")
-
+            
             if pending_count > 0:
                 lines.append(f"\n⏳ {pending_count} Entitäten warten auf Review (PENDING)")
 
