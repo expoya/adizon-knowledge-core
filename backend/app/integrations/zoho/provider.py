@@ -589,10 +589,10 @@ class ZohoCRMProvider(CRMProvider):
                         # Build paginated query
                         query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
                         logger.debug(f"    Query (Page {page}): {query}")
-                    
-                    try:
-                        # Execute query
-                        data = await self.execute_raw_query(query)
+                        
+                        try:
+                            # Execute query
+                            data = await self.execute_raw_query(query)
                         
                         if not data:
                             logger.debug(f"    📄 Page {page}: No more records")
@@ -615,38 +615,38 @@ class ZohoCRMProvider(CRMProvider):
                         offset += limit
                         page += 1
                         
-                        # Rate Limit Protection: Sleep 0.6s between calls
-                        # Zoho allows 100 calls/min = 1 call every 0.6s
-                        await asyncio.sleep(0.6)
+                            # Rate Limit Protection: Sleep 0.6s between calls
+                            # Zoho allows 100 calls/min = 1 call every 0.6s
+                            await asyncio.sleep(0.6)
+                            
+                        except ZohoAPIError as e:
+                            error_msg = str(e).lower()
+                            # Check for Finance module errors
+                            if module_name in ["Zoho_Books", "Subscriptions__s", "Einw_nde"] and ("not_supported" in error_msg or "400" in str(e)):
+                                logger.warning(f"    ⚠️ COQL not supported for {module_name}")
+                                break
+                            else:
+                                logger.error(f"    ❌ API error on page {page}: {e}")
+                                # Continue with what we have (error recovery)
+                                break
                         
-                    except ZohoAPIError as e:
-                        error_msg = str(e).lower()
-                        # Check for Finance module errors
-                        if module_name in ["Zoho_Books", "Subscriptions__s", "Einw_nde"] and ("not_supported" in error_msg or "400" in str(e)):
-                            logger.warning(f"    ⚠️ COQL not supported for {module_name}")
-                            break
-                        else:
-                            logger.error(f"    ❌ API error on page {page}: {e}")
+                        except Exception as e:
+                            logger.error(f"    ❌ Unexpected error on page {page}: {e}", exc_info=True)
                             # Continue with what we have (error recovery)
                             break
                     
-                    except Exception as e:
-                        logger.error(f"    ❌ Unexpected error on page {page}: {e}", exc_info=True)
-                        # Continue with what we have (error recovery)
-                        break
+                    # Use accumulated data (OUTSIDE while loop)
+                    data = all_data
+                    
+                    # Final check: If no data fetched
+                    if not data:
+                        if module_name in ["Zoho_Books", "Subscriptions__s"]:
+                            logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported for Finance modules")
+                        else:
+                            logger.info(f"    ℹ️ No records found for {entity_type}")
+                        continue
                 
-                # Use accumulated data
-                data = all_data
-                
-                # Final check: If no data fetched
-                if not data:
-                    if module_name in ["Zoho_Books", "Subscriptions__s"]:
-                        logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported for Finance modules")
-                    else:
-                        logger.info(f"    ℹ️ No records found for {entity_type}")
-                    continue
-                
-                # Process records
+                # Process records (COMMON for both REST API and COQL paths)
                 for record in data:
                     # Extract properties (scalar fields)
                     properties = {"zoho_id": record.get("id")}
