@@ -4,6 +4,8 @@ Adizon Knowledge Core - FastAPI Application Entry Point
 A Sovereign AI Knowledge Platform for document ingestion and hybrid GraphRAG search.
 """
 
+import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,6 +19,56 @@ from app.db.session import async_engine
 from app.services.storage import get_minio_service
 
 settings = get_settings()
+
+
+def setup_logging():
+    """
+    Configure Python logging to write to stdout for Railway visibility.
+    
+    CRITICAL: Railway only shows stdout, not stderr!
+    Python logging defaults to stderr, so we must explicitly configure it.
+    """
+    # Determine log level from environment
+    log_level_str = settings.log_level.upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Remove any existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Create StreamHandler that writes to STDOUT (not stderr!)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(log_level)
+    
+    # Set readable format
+    formatter = logging.Formatter(
+        '%(levelname)s: %(name)s - %(message)s'
+    )
+    handler.setFormatter(formatter)
+    
+    # Add handler to root logger
+    root_logger.addHandler(handler)
+    
+    # Configure app loggers
+    for logger_name in ['app', 'uvicorn.access', 'uvicorn.error']:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(log_level)
+        logger.propagate = True  # Let it propagate to root
+    
+    # Reduce noise from third-party libraries
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
+    
+    print("✅ Logging configured - All logs will now be visible!")
+    logging.info("✅ Logging system initialized - outputting to stdout")
+
+
+# Setup logging BEFORE anything else
+setup_logging()
 
 
 async def reset_vector_tables_if_dev():
