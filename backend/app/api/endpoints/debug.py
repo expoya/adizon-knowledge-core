@@ -221,6 +221,69 @@ async def debug_relationship_targets(
     return analysis
 
 
+@router.get("/debug/relationship-readiness")
+async def debug_relationship_readiness(
+    graph_store: GraphStoreService = Depends(get_graph_store_service)
+) -> Dict[str, Any]:
+    """
+    Prüft ob Nodes die nötigen Properties für Relationships haben.
+    """
+    
+    analysis = {}
+    
+    # Check 1: Do Deals have account_name_id?
+    deals_query = """
+    MATCH (d:Deal)
+    RETURN 
+        count(d) as total_deals,
+        count(d.account_name_id) as deals_with_account_id,
+        count(d.owner_id) as deals_with_owner_id
+    """
+    
+    deals_result = await graph_store.query(deals_query)
+    if deals_result:
+        analysis["deals"] = deals_result[0]
+    
+    # Check 2: Do Notes have parent_id?
+    notes_query = """
+    MATCH (n:Note)
+    RETURN 
+        count(n) as total_notes,
+        count(n.parent_id) as notes_with_parent_id,
+        count(n.owner_id) as notes_with_owner_id
+    """
+    
+    notes_result = await graph_store.query(notes_query)
+    if notes_result:
+        analysis["notes"] = notes_result[0]
+    
+    # Check 3: Do Tasks have what_id/who_id?
+    tasks_query = """
+    MATCH (t:Task)
+    RETURN 
+        count(t) as total_tasks,
+        count(t.what_id) as tasks_with_what_id,
+        count(t.who_id) as tasks_with_who_id,
+        count(t.owner_id) as tasks_with_owner_id
+    """
+    
+    tasks_result = await graph_store.query(tasks_query)
+    if tasks_result:
+        analysis["tasks"] = tasks_result[0]
+    
+    # Check 4: Sample Deal with properties
+    sample_deal_query = """
+    MATCH (d:Deal)
+    RETURN d.source_id, d.name, d.account_name_id, d.owner_id, keys(d) as all_keys
+    LIMIT 3
+    """
+    
+    sample_deals = await graph_store.query(sample_deal_query)
+    analysis["sample_deals"] = sample_deals
+    
+    return analysis
+
+
 @router.get("/debug/multi-label-check")
 async def debug_multi_label_check(
     graph_store: GraphStoreService = Depends(get_graph_store_service)
