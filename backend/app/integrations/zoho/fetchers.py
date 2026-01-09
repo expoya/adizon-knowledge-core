@@ -147,7 +147,10 @@ async def fetch_via_rest_api(
             data_page = response.get("data", [])
             
             if not data_page:
-                logger.debug(f"    📄 Page {page_num}: No more records")
+                if page_num == 1:
+                    logger.warning(f"    ⚠️ {module_name}: No records found (empty module)")
+                else:
+                    logger.debug(f"    📄 Page {page_num}: No more records")
                 break
             
             all_data.extend(data_page)
@@ -170,11 +173,11 @@ async def fetch_via_rest_api(
             await asyncio.sleep(0.6)
             
         except ZohoAPIError as e:
-            logger.warning(f"    ⚠️ REST API failed on page {page_num} | Error: {str(e)}")
+            logger.error(f"    ❌ REST API failed for {module_name} (page {page_num}) | Error: {str(e)}")
             break
             
         except Exception as e:
-            logger.error(f"    ❌ REST API error on page {page_num}: {e}")
+            logger.error(f"    ❌ REST API error for {module_name} (page {page_num}): {e}", exc_info=True)
             break
     
     return all_data

@@ -174,7 +174,7 @@ class ZohoCRMProvider(CRMProvider):
                 
                 # === CHECK DATA ===
                 if not data:
-                    logger.warning(f"    ⚠️ No records found for {entity_type} (module: {module_name})")
+                    logger.info(f"    ℹ️ No records found for {entity_type}")
                     continue
                 
                 # === PROCESS RECORDS ===

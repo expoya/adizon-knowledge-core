@@ -181,12 +181,26 @@ def get_schema_config(entity_type: str) -> Dict[str, Any]:
 
 def get_all_entity_types() -> list[str]:
     """
-    Get list of all configured entity types.
+    Get list of all configured entity types (excluding aliases).
     
     Returns:
-        List of entity type names
+        List of entity type names (primary names only, no duplicates)
     """
-    return list(SCHEMA_MAPPING.keys())
+    # Return only primary entity types, not aliases
+    return [
+        "Users",
+        "Leads",
+        "Accounts",
+        "Contacts",
+        "Deals",
+        "Tasks",
+        "Notes",
+        "Events",        # calendlyforzohocrm__Calendly_Events
+        "Einwaende",     # Einw_nde
+        "Attachments",
+        "Invoices",      # CRM Invoices (not Books!)
+        "Emails",        # NEW!
+    ]
 
 
 def is_rest_api_module(entity_type: str) -> bool:
