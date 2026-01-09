@@ -50,7 +50,8 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
             {"field": "Account_Name", "edge": "HAS_DEAL", "target_label": "Account", "direction": "INCOMING"},
             {"field": "Contact_Name", "edge": "ASSOCIATED_WITH", "target_label": "Contact", "direction": "OUTGOING"},
             {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
-        ]
+        ],
+        "use_rest_api": True  # COQL doesn't return lookup fields properly
     },
     "Tasks": {
         "label": "Task",
@@ -60,7 +61,8 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
             {"field": "Who_Id", "edge": "HAS_TASK", "target_label": "CRMEntity", "direction": "INCOMING"},
             {"field": "What_Id", "edge": "HAS_TASK", "target_label": "CRMEntity", "direction": "INCOMING"},
             {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
-        ]
+        ],
+        "use_rest_api": True  # COQL doesn't return lookup fields properly
     },
     "Notes": {
         "label": "Note",
@@ -69,7 +71,8 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
         "relations": [
             {"field": "Parent_Id", "edge": "HAS_NOTE", "target_label": "CRMEntity", "direction": "INCOMING"},
             {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
-        ]
+        ],
+        "use_rest_api": True  # COQL doesn't return lookup fields properly
     },
     "Events": {
         "label": "CalendlyEvent",
@@ -79,7 +82,8 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
             {"field": "calendlyforzohocrm__Lead", "edge": "HAS_EVENT", "target_label": "Lead", "direction": "INCOMING"},
             {"field": "calendlyforzohocrm__Contact", "edge": "HAS_EVENT", "target_label": "Contact", "direction": "INCOMING"},
             {"field": "Verkn_pfter_Account", "edge": "HAS_EVENT", "target_label": "Account", "direction": "INCOMING"}
-        ]
+        ],
+        "use_rest_api": True  # COQL doesn't return lookup fields properly
     },
     "Einwaende": {
         "label": "Einwand",
@@ -87,7 +91,8 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
         "fields": ["id", "Name", "Lead", "Einwand_Kategorie", "Gespr_chszeitpunkt", "Einwandbeschreibung"],
         "relations": [
             {"field": "Lead", "edge": "HAS_OBJECTION", "target_label": "Lead", "direction": "INCOMING"}
-        ]
+        ],
+        "use_rest_api": True  # COQL doesn't return lookup fields properly
     },
     "Attachments": {
         "label": "Attachment",
@@ -95,7 +100,8 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
         "fields": ["id", "File_Name", "Parent_Id"],
         "relations": [
             {"field": "Parent_Id", "edge": "HAS_DOCUMENTS", "target_label": "CRMEntity", "direction": "INCOMING"}
-        ]
+        ],
+        "use_rest_api": True  # COQL doesn't return lookup fields properly
     },
     "Invoices": {
         "label": "Invoice",
