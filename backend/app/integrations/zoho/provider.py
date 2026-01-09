@@ -265,6 +265,13 @@ class ZohoCRMProvider(CRMProvider):
         """
         # Schema mapping for graph structure
         SCHEMA_MAPPING = {
+            "Users": {
+                "label": "User",
+                "module_name": "Users",
+                "fields": ["id", "full_name", "email"],
+                "relations": [],
+                "use_api": True  # Special: Use /users API instead of COQL
+            },
             "Leads": {
                 "label": "Lead",
                 "module_name": "Leads",
@@ -362,6 +369,23 @@ class ZohoCRMProvider(CRMProvider):
                 "relations": [
                     {"field": "Parent_Id", "edge": "HAS_DOCUMENTS", "target_label": "CRMEntity", "direction": "INCOMING"}
                 ]
+            },
+            # Aliases for alternative naming (module names vs friendly names)
+            "Zoho_Books": {  # Alias for Invoices
+                "label": "Invoice",
+                "module_name": "Zoho_Books",
+                "fields": ["id", "Subject", "Account", "Total", "Status"],
+                "relations": [
+                    {"field": "Account", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
+                ]
+            },
+            "Einw_nde": {  # Alias for Einwaende
+                "label": "Einwand",
+                "module_name": "Einw_nde",
+                "fields": ["id", "Name", "Lead", "Grund", "Status"],
+                "relations": [
+                    {"field": "Lead", "edge": "HAS_OBJECTION", "target_label": "Lead", "direction": "INCOMING"}
+                ]
             }
         }
         
@@ -375,7 +399,7 @@ class ZohoCRMProvider(CRMProvider):
         
         for entity_type in entity_types:
             if entity_type not in SCHEMA_MAPPING:
-                logger.warning(f"⚠️ Unknown entity type: {entity_type}")
+                logger.warning(f"⚠️ Unknown entity type '{entity_type}'. Skipping. Available types: {list(SCHEMA_MAPPING.keys())}")
                 continue
             
             config = SCHEMA_MAPPING[entity_type]
@@ -385,8 +409,8 @@ class ZohoCRMProvider(CRMProvider):
             logger.info(f"  📋 Processing {entity_type} (module: {module_name}, label: {label})...")
             
             try:
-                # Special case: Users via API
-                if entity_type == "Users":
+                # Special case: Users via API (not COQL)
+                if config.get("use_api", False):
                     try:
                         response = await self.client.get("/crm/v6/users", params={"type": "ActiveUsers"})
                         users = response.get("users", [])
@@ -394,7 +418,7 @@ class ZohoCRMProvider(CRMProvider):
                         for user in users:
                             results.append({
                                 "source_id": f"zoho_{user.get('id')}",
-                                "label": "User",
+                                "label": label,
                                 "properties": {
                                     "name": user.get("full_name") or user.get("name", "Unknown User"),
                                     "email": user.get("email"),
@@ -403,11 +427,11 @@ class ZohoCRMProvider(CRMProvider):
                                 "relations": []
                             })
                         
-                        logger.info(f"    ✅ Fetched {len(users)} Users")
+                        logger.info(f"    ✅ Fetched {len(users)} {entity_type}")
                         continue
                         
                     except Exception as e:
-                        logger.warning(f"    ⚠️ Skipping Users: {e}")
+                        logger.warning(f"    ⚠️ Skipping {entity_type} (API error): {e}")
                         continue
                 
                 # Build SELECT query with all fields
