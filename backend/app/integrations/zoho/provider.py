@@ -238,6 +238,61 @@ class ZohoCRMProvider(CRMProvider):
         except Exception as e:
             logger.error(f"❌ Query execution error: {e}")
             return []
+    
+    async def fetch_via_rest_api(
+        self,
+        module_name: str,
+        fields: List[str],
+        limit: int = 200,
+        page: int = 1
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetches records via Zoho REST API (for modules that don't support COQL).
+        
+        Used for: Invoices, Subscriptions, Emails, and other Finance/Activity modules.
+        
+        Args:
+            module_name: Zoho module name (e.g., "Zoho_Books", "Emails")
+            fields: List of fields to retrieve
+            limit: Records per page (max 200)
+            page: Page number (1-indexed)
+            
+        Returns:
+            List of records
+        """
+        logger.debug(f"⚡ Fetching via REST API: {module_name} (page {page}, limit {limit})")
+        
+        try:
+            # Build REST API endpoint
+            endpoint = f"/crm/v6/{module_name}"
+            
+            # Build query parameters
+            params = {
+                "fields": ",".join(fields),
+                "per_page": min(limit, 200),  # Zoho REST API max 200
+                "page": page
+            }
+            
+            # Execute request
+            response = await self.client.get(endpoint, params=params)
+            
+            # Return data field
+            data = response.get("data", [])
+            logger.debug(f"  ✅ REST API returned {len(data)} records")
+            
+            return data
+            
+        except ZohoAPIError as e:
+            logger.warning(
+                f"⚠️ REST API failed | "
+                f"Module: {module_name} | "
+                f"Error: {str(e)}"
+            )
+            return []
+            
+        except Exception as e:
+            logger.error(f"❌ REST API error: {e}")
+            return []
 
     async def fetch_skeleton_data(
         self, 
@@ -340,21 +395,21 @@ class ZohoCRMProvider(CRMProvider):
             },
             "Invoices": {
                 "label": "Invoice",
-                "module_name": "Zoho_Books",
-                "fields": ["id", "Subject", "Account", "Total", "Status"],
+                "module_name": "Invoices",
+                "fields": ["id", "Subject", "Account_Name", "Grand_Total", "Status", "Invoice_Date"],
                 "relations": [
-                    {"field": "Account", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
+                    {"field": "Account_Name", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
                 ],
-                "skip_coql": True  # Finance module does not support COQL
+                "use_rest_api": True  # Finance module uses REST API, not COQL
             },
             "Subscriptions": {
                 "label": "Subscription",
-                "module_name": "Subscriptions__s",
-                "fields": ["id", "Name", "Account", "Total", "Status"],
+                "module_name": "Subscriptions",
+                "fields": ["id", "Name", "Account_Name", "Amount", "Status", "Start_Date"],
                 "relations": [
-                    {"field": "Account", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
+                    {"field": "Account_Name", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
                 ],
-                "skip_coql": True  # Finance module does not support COQL
+                "use_rest_api": True  # Finance module uses REST API, not COQL
             },
             "Einwaende": {
                 "label": "Einwand",
@@ -372,15 +427,25 @@ class ZohoCRMProvider(CRMProvider):
                     {"field": "Parent_Id", "edge": "HAS_DOCUMENTS", "target_label": "CRMEntity", "direction": "INCOMING"}
                 ]
             },
-            # Aliases for alternative naming (module names vs friendly names)
-            "Zoho_Books": {  # Alias for Invoices
-                "label": "Invoice",
-                "module_name": "Zoho_Books",
-                "fields": ["id", "Subject", "Account", "Total", "Status"],
+            "Emails": {
+                "label": "Email",
+                "module_name": "Emails",
+                "fields": ["id", "Subject", "from", "to", "Parent_Id", "Owner"],
                 "relations": [
-                    {"field": "Account", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
+                    {"field": "Parent_Id", "edge": "HAS_EMAIL", "target_label": "CRMEntity", "direction": "INCOMING"},
+                    {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
                 ],
-                "skip_coql": True  # Finance module does not support COQL
+                "use_rest_api": True  # Emails use REST API, not COQL
+            },
+            # Aliases for alternative naming (module names vs friendly names)
+            "Zoho_Books": {  # Alias for Invoices (old name)
+                "label": "Invoice",
+                "module_name": "Invoices",
+                "fields": ["id", "Subject", "Account_Name", "Grand_Total", "Status", "Invoice_Date"],
+                "relations": [
+                    {"field": "Account_Name", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
+                ],
+                "use_rest_api": True  # Finance module uses REST API, not COQL
             },
             "Einw_nde": {  # Alias for Einwaende
                 "label": "Einwand",
@@ -400,14 +465,14 @@ class ZohoCRMProvider(CRMProvider):
                     {"field": "Verkn_pfter_Account", "edge": "HAS_EVENT", "target_label": "Account", "direction": "INCOMING"}
                 ]
             },
-            "Subscriptions__s": {  # Alias for Subscriptions (full module name)
+            "Subscriptions__s": {  # Alias for Subscriptions (old name)
                 "label": "Subscription",
-                "module_name": "Subscriptions__s",
-                "fields": ["id", "Name", "Account", "Total", "Status"],
+                "module_name": "Subscriptions",
+                "fields": ["id", "Name", "Account_Name", "Amount", "Status", "Start_Date"],
                 "relations": [
-                    {"field": "Account", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
+                    {"field": "Account_Name", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
                 ],
-                "skip_coql": True  # Finance module does not support COQL
+                "use_rest_api": True  # Finance module uses REST API, not COQL
             }
         }
         
@@ -456,34 +521,74 @@ class ZohoCRMProvider(CRMProvider):
                         logger.warning(f"    ⚠️ Skipping {entity_type} (API error): {e}")
                         continue
                 
-                # Skip COQL for Finance modules (not supported)
-                if config.get("skip_coql", False):
-                    logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported (Finance module). TODO: Use Finance API.")
-                    continue
-                
                 # Build SELECT query with all fields
                 fields_to_select = config["fields"].copy()
                 
-                # === SMOKE TEST: Limited fetch for validation ===
-                # TODO: After successful smoke test, change limit to 10000 and enable pagination
-                all_data = []
-                offset = 0
-                limit = 50  # 🔥 SMOKE TEST: Limited to 50 records per entity
-                page = 1
-                max_pages = 1  # 🔥 SMOKE TEST: Only fetch first page
+                # Check if module uses REST API instead of COQL
+                use_rest_api = config.get("use_rest_api", False)
                 
-                # Special filter for Leads: Only import leads created after 2024-04-01
-                where_clause = "id is not null"
-                if module_name == "Leads":
-                    where_clause = "id is not null AND Created_Time > '2024-04-01T00:00:00+00:00'"
-                    logger.info(f"    📅 Applying Leads filter: Created_Time > 2024-04-01")
+                if use_rest_api:
+                    logger.info(f"    🔄 Using REST API for {entity_type} (COQL not supported)")
+                    
+                    # Fetch via REST API with pagination
+                    all_data = []
+                    page_num = 1
+                    rest_limit = 50  # 🔥 SMOKE TEST: Limited per page
+                    
+                    while page_num <= 1:  # 🔥 SMOKE TEST: Only 1 page
+                        try:
+                            data_page = await self.fetch_via_rest_api(
+                                module_name=module_name,
+                                fields=fields_to_select,
+                                limit=rest_limit,
+                                page=page_num
+                            )
+                            
+                            if not data_page:
+                                logger.debug(f"    📄 Page {page_num}: No more records")
+                                break
+                            
+                            all_data.extend(data_page)
+                            logger.info(f"    📄 Page {page_num}: Fetched {len(data_page)} records (Total: {len(all_data)})")
+                            
+                            # 🔥 SMOKE TEST: Stop after first page
+                            logger.info(f"    🔥 SMOKE TEST: Stopping after {page_num} page(s)")
+                            break
+                            
+                        except Exception as e:
+                            logger.error(f"    ❌ REST API error on page {page_num}: {e}")
+                            break
+                    
+                    data = all_data
+                    
+                    if not data:
+                        logger.info(f"    ℹ️ No records found for {entity_type} (REST API)")
+                        continue
+                    
+                    # Skip COQL section, go directly to processing
                 
-                logger.info(f"    🔥 SMOKE TEST MODE: LIMIT {limit}, max {max_pages} page(s)")
-                
-                while True:
-                    # Build paginated query
-                    query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
-                    logger.debug(f"    Query (Page {page}): {query}")
+                else:
+                    # === COQL: Standard fetch for regular modules ===
+                    # === SMOKE TEST: Limited fetch for validation ===
+                    # TODO: After successful smoke test, change limit to 10000 and enable pagination
+                    all_data = []
+                    offset = 0
+                    limit = 50  # 🔥 SMOKE TEST: Limited to 50 records per entity
+                    page = 1
+                    max_pages = 1  # 🔥 SMOKE TEST: Only fetch first page
+                    
+                    # Special filter for Leads: Only import leads created after 2024-04-01
+                    where_clause = "id is not null"
+                    if module_name == "Leads":
+                        where_clause = "id is not null AND Created_Time > '2024-04-01T00:00:00+00:00'"
+                        logger.info(f"    📅 Applying Leads filter: Created_Time > 2024-04-01")
+                    
+                    logger.info(f"    🔥 SMOKE TEST MODE: LIMIT {limit}, max {max_pages} page(s)")
+                    
+                    while True:
+                        # Build paginated query
+                        query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
+                        logger.debug(f"    Query (Page {page}): {query}")
                     
                     try:
                         # Execute query
