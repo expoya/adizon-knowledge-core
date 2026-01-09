@@ -89,7 +89,7 @@ async def fetch_via_coql(
             # Log first query at INFO level for debugging (full query for error analysis)
             if page == 1:
                 logger.info(f"    🔍 COQL Query (first 300 chars): {query[:300]}...")
-                logger.debug(f"    🔍 FULL COQL Query: {query}")
+                logger.info(f"    🔍 FULL COQL Query: {query}")  # Always log full query for debugging!
             else:
                 logger.debug(f"    Query (Page {page}): {query}")
             
