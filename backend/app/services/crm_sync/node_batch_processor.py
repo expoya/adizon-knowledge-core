@@ -4,6 +4,7 @@ Node Batch Processor for CRM Sync.
 Handles batch creation of Neo4j nodes with error recovery.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Dict, List
@@ -102,10 +103,13 @@ class NodeBatchProcessor:
         provider_name: str
     ) -> Dict:
         """
-        Process single label batch.
+        Process single label batch with chunking.
         
         Creates/updates nodes with MERGE query.
         Adds both specific label and CRMEntity label (except for User).
+        
+        CRITICAL: Neo4j cannot handle 10k+ nodes in one MERGE!
+        We split into chunks of 1000 nodes per transaction.
         
         Args:
             label: Node label (e.g., "Lead", "Account")
@@ -141,20 +145,52 @@ class NodeBatchProcessor:
                sum(CASE WHEN n.created_at <> n.synced_at THEN 1 ELSE 0 END) as updated
         """
         
-        result = await self.graph_store.query(
-            cypher_query,
-            parameters={
-                "batch": entities,
-                "source": provider_name
-            }
-        )
+        # Split into chunks of 1000 to avoid memory/timeout issues
+        chunk_size = 1000
+        total_count = 0
+        total_created = 0
+        total_updated = 0
         
-        if result and len(result) > 0:
-            return {
-                "count": result[0].get("count", 0),
-                "created": result[0].get("created", 0),
-                "updated": result[0].get("updated", 0)
-            }
-        else:
-            return {"count": 0, "created": 0, "updated": 0}
+        for i in range(0, len(entities), chunk_size):
+            chunk = entities[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            total_chunks = (len(entities) + chunk_size - 1) // chunk_size
+            
+            logger.debug(
+                f"    Processing {label} chunk {chunk_num}/{total_chunks} "
+                f"({len(chunk)} nodes)"
+            )
+            
+            result = await self.graph_store.query(
+                cypher_query,
+                parameters={
+                    "batch": chunk,
+                    "source": provider_name
+                }
+            )
+            
+            if result and len(result) > 0:
+                chunk_count = result[0].get("count", 0)
+                chunk_created = result[0].get("created", 0)
+                chunk_updated = result[0].get("updated", 0)
+                
+                total_count += chunk_count
+                total_created += chunk_created
+                total_updated += chunk_updated
+                
+                logger.debug(
+                    f"      ✅ Chunk {chunk_num}: {chunk_count} nodes "
+                    f"({chunk_created} created, {chunk_updated} updated)"
+                )
+            
+            # Small delay between chunks to give Neo4j time for GC
+            # Skip for last chunk
+            if chunk_num < total_chunks:
+                await asyncio.sleep(0.1)
+        
+        return {
+            "count": total_count,
+            "created": total_created,
+            "updated": total_updated
+        }
 

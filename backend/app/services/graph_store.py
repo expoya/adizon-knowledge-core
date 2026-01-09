@@ -40,10 +40,19 @@ class GraphStoreService:
         
         try:
             logger.debug(f"Connecting to Neo4j at {settings.neo4j_uri}")
+            
+            # Optimized driver configuration for large batch operations
+            # See: https://neo4j.com/docs/api/python-driver/current/api.html#driver-configuration
             self.driver = GraphDatabase.driver(
                 settings.neo4j_uri,
                 auth=(settings.neo4j_user, settings.neo4j_password),
+                max_connection_lifetime=3600,  # 1 hour (default: 3600)
+                max_connection_pool_size=50,   # Max concurrent connections (default: 100)
+                connection_acquisition_timeout=120,  # 2 minutes for large batches (default: 60)
+                max_transaction_retry_time=60,  # Retry transactions for 60s (default: 30)
+                encrypted=False,  # Set to True if using neo4j+s:// or bolt+s://
             )
+            logger.debug("  ✓ Driver configured for large batch operations")
             
             # Verify connectivity
             logger.debug("Verifying Neo4j connectivity...")

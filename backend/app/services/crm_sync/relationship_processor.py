@@ -4,6 +4,7 @@ Relationship Processor for CRM Sync.
 Handles batch creation of Neo4j relationships with proper typing.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
@@ -197,6 +198,11 @@ class RelationshipProcessor:
                 chunk_count = result[0].get("count", 0)
                 total_count += chunk_count
                 logger.debug(f"      ✅ Chunk {chunk_num}: {chunk_count} relationships created")
+            
+            # Small delay between chunks to give Neo4j time for GC
+            # Skip for last chunk
+            if chunk_num < total_chunks:
+                await asyncio.sleep(0.1)
         
         return {"count": total_count}
     
