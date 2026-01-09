@@ -389,6 +389,25 @@ class ZohoCRMProvider(CRMProvider):
                 "relations": [
                     {"field": "Lead", "edge": "HAS_OBJECTION", "target_label": "Lead", "direction": "INCOMING"}
                 ]
+            },
+            "calendlyforzohocrm__Calendly_Events": {  # Alias for Events (full module name)
+                "label": "CalendlyEvent",
+                "module_name": "calendlyforzohocrm__Calendly_Events",
+                "fields": ["id", "Name", "calendlyforzohocrm__Lead", "calendlyforzohocrm__Contact", "Verkn_pfter_Account", "calendlyforzohocrm__Status", "calendlyforzohocrm__Start_Time"],
+                "relations": [
+                    {"field": "calendlyforzohocrm__Lead", "edge": "HAS_EVENT", "target_label": "Lead", "direction": "INCOMING"},
+                    {"field": "calendlyforzohocrm__Contact", "edge": "HAS_EVENT", "target_label": "Contact", "direction": "INCOMING"},
+                    {"field": "Verkn_pfter_Account", "edge": "HAS_EVENT", "target_label": "Account", "direction": "INCOMING"}
+                ]
+            },
+            "Subscriptions__s": {  # Alias for Subscriptions (full module name)
+                "label": "Subscription",
+                "module_name": "Subscriptions__s",
+                "fields": ["id", "Name", "Account", "Total", "Status"],
+                "relations": [
+                    {"field": "Account", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
+                ],
+                "skip_coql": True  # Finance module does not support COQL
             }
         }
         

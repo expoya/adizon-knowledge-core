@@ -165,14 +165,14 @@ Keine Erklärung, nur das Klassifikations-Wort!"""
             LIMIT 1
             """
             
-            # Führe Query aus
-            result = await graph_store.client.execute_query(
+            # Führe Query aus mit der query() Methode
+            result = await graph_store.query(
                 cypher_query,
-                parameters_={"query": user_message}
+                parameters={"query": user_message}
             )
             
-            if result and result.records:
-                record = result.records[0]
+            if result and len(result) > 0:
+                record = result[0]
                 source_id = record.get("source_id")
                 entity_name = record.get("name")
                 entity_type = record.get("type")
