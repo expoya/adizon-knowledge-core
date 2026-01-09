@@ -131,7 +131,9 @@ async def fetch_via_rest_api(
     while page_num <= max_pages:  # 🔥 SMOKE TEST: Limited pages
         try:
             # Build REST API endpoint
-            endpoint = f"/crm/v6/{module_name}"
+            # NOTE: Emails module uses v2 API, not v6!
+            api_version = "v2" if module_name == "Emails" else "v6"
+            endpoint = f"/crm/{api_version}/{module_name}"
             
             # Build query parameters
             params = {

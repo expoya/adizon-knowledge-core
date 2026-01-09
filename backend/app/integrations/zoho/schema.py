@@ -199,7 +199,7 @@ def get_all_entity_types() -> list[str]:
         "Einwaende",     # Einw_nde
         "Attachments",
         "Invoices",      # CRM Invoices (not Books!)
-        # "Emails",      # DISABLED: Waiting for OAuth scope fix
+        "Emails",        # Uses v2 API (not v6!)
     ]
 
 
