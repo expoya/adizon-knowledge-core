@@ -19,6 +19,7 @@ def extract_name_from_record(
     Extracts display name from a Zoho record.
     
     Handles different field patterns: First_Name/Last_Name, Account_Name, Deal_Name, etc.
+    Also handles lookup fields (dicts) vs scalar fields (strings).
     
     Args:
         record: Raw Zoho record
@@ -44,13 +45,31 @@ def extract_name_from_record(
         return full_name if full_name else f"Unknown {label}"
         
     elif "Account_Name" in fields:
-        return record.get("Account_Name", f"Unknown {label}")
+        account_name = record.get("Account_Name")
+        # Handle lookup field (dict) vs scalar (string)
+        if isinstance(account_name, dict):
+            return account_name.get("name", f"Unknown {label}")
+        return account_name or f"Unknown {label}"
+        
     elif "Deal_Name" in fields:
-        return record.get("Deal_Name", f"Unknown {label}")
+        deal_name = record.get("Deal_Name")
+        # Handle lookup field (dict) vs scalar (string)
+        if isinstance(deal_name, dict):
+            return deal_name.get("name", f"Unknown {label}")
+        return deal_name or f"Unknown {label}"
+        
     elif "Subject" in fields:
-        return record.get("Subject", f"Unknown {label}")
+        subject = record.get("Subject")
+        if isinstance(subject, dict):
+            return subject.get("name", f"Unknown {label}")
+        return subject or f"Unknown {label}"
+        
     elif "Name" in fields:
-        return record.get("Name", f"Unknown {label}")
+        name = record.get("Name")
+        if isinstance(name, dict):
+            return name.get("name", f"Unknown {label}")
+        return name or f"Unknown {label}"
+        
     else:
         return f"Unknown {label}"
 
@@ -81,10 +100,10 @@ def extract_properties_from_record(
     # Extract display name
     properties["name"] = extract_name_from_record(record, fields, label)
     
-    # Add other scalar fields
+    # Add all fields as properties
     for field in fields:
-        if field in ["id", "First_Name", "Last_Name", "Account_Name", "Deal_Name", "Subject", "Name"]:
-            continue  # Already processed
+        if field == "id":
+            continue  # Already stored as zoho_id
         
         value = record.get(field)
         
@@ -122,8 +141,8 @@ def extract_properties_from_record(
                 # ZOHO COQL LIMITATION: Lookup fields only contain ID
                 # This is expected behavior - name will be resolved via graph relationship
                 logger.debug(f"Lookup field '{field}' only has ID (COQL limitation). Will resolve via relationship. ID: {lookup_id}")
-        elif value:
-            # Scalar field: store directly
+        elif value is not None and value != "":
+            # Scalar field: store directly (skip empty values)
             properties[field.lower()] = value
     
     return properties

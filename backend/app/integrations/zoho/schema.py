@@ -128,7 +128,7 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
     
     # Zoho Books Modules (separate from CRM)
     "BooksInvoices": {
-        "label": "Invoice",
+        "label": "BooksInvoice",  # Unique label to avoid conflict with CRM Invoices
         "module_name": "BooksInvoices",  # Logical name
         "fields": ["invoice_id", "invoice_number", "customer_name", "total", "status", "date"],
         "relations": [
@@ -137,7 +137,7 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
         "use_books_api": True  # Zoho Books API (/books/v3/invoices)
     },
     "BooksSubscriptions": {
-        "label": "Subscription",
+        "label": "BooksSubscription",  # Unique label to avoid conflict
         "module_name": "BooksSubscriptions",  # Logical name
         "fields": ["subscription_id", "subscription_number", "customer_name", "amount", "status", "start_date"],
         "relations": [
