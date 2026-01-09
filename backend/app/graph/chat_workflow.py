@@ -22,6 +22,22 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+def _get_next_node_name(intent: str) -> str:
+    """Helper: Get next node name for debug logging."""
+    if intent == "sql":
+        return "sql_node"
+    elif intent == "knowledge":
+        return "knowledge_node"
+    elif intent == "crm":
+        return "crm_node"
+    else:
+        return "knowledge_node (fallback)"
+
+
+# =============================================================================
 # State Definition
 # =============================================================================
 
@@ -61,6 +77,8 @@ async def router_node(state: AgentState) -> AgentState:
         state["intent"] = "knowledge"
         return state
     
+    # STRICT DEBUG LOGGING
+    logger.info(f"[ROUTER] User Query: {user_message}")
     logger.debug(f"Analyzing query: {user_message[:100]}...")
     
     # Verwende LLM für Intent Classification
@@ -99,7 +117,8 @@ Keine Erklärung, nur das Klassifikations-Wort!"""
         else:
             initial_intent = "general"
         
-        logger.info(f"📊 Initial intent classification: {initial_intent}")
+        # STRICT DEBUG LOGGING
+        logger.info(f"[ROUTER] LLM Classification Result: '{intent_raw}' → Intent: '{initial_intent}'")
         
     except Exception as e:
         logger.error(f"❌ Intent classification failed: {e}")
@@ -144,7 +163,9 @@ Keine Erklärung, nur das Klassifikations-Wort!"""
         # Knowledge oder General Intent
         state["intent"] = initial_intent
     
-    logger.info(f"🎯 Final intent: {state['intent']}")
+    # STRICT DEBUG LOGGING - Final Intent
+    logger.info(f"[ROUTER] ✅ Final Intent Decision: '{state['intent']}'")
+    logger.info(f"[ROUTER] Next Node: {_get_next_node_name(state['intent'])}")
     
     # CRM-Check: Suche nach Entities mit CRM-ID im Graph
     # Wenn eine spezifische Person/Firma erwähnt wird, holen wir Live-Facts
@@ -197,7 +218,8 @@ async def sql_node(state: AgentState) -> AgentState:
     """
     SQL Node: Generiert und führt SQL Query basierend auf User-Frage aus.
     """
-    logger.info("🗄️ SQL Node: Processing SQL query")
+    logger.info("[SQL_NODE] 🗄️ Executing SQL Node")
+    logger.info("[SQL_NODE] Tool: execute_sql_query & get_sql_schema")
     
     # Hole SQL Context
     sql_context = state.get("sql_context", {})
@@ -295,7 +317,8 @@ async def knowledge_node(state: AgentState) -> AgentState:
     """
     Knowledge Node: Durchsucht die interne Wissensdatenbank.
     """
-    logger.info("📚 Knowledge Node: Searching knowledge base")
+    logger.info("[KNOWLEDGE_NODE] 📚 Executing Knowledge Node")
+    logger.info("[KNOWLEDGE_NODE] Tool: search_knowledge_base (Vector + Graph)")
     
     # Hole User Query
     user_message = None
@@ -334,7 +357,8 @@ async def crm_node(state: AgentState) -> AgentState:
     """
     CRM Node: Holt Live-Fakten aus dem CRM-System.
     """
-    logger.info("📞 CRM Node: Fetching live facts from CRM")
+    logger.info("[CRM_NODE] 📞 Executing CRM Node")
+    logger.info("[CRM_NODE] Tool: get_crm_facts")
     
     # Hole CRM Target
     crm_target = state.get("crm_target", "")

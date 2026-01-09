@@ -82,6 +82,17 @@ def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
             
             logger.info(f"✅ Query executed successfully: {len(rows)} rows returned")
             return result_str
+    
+    except RuntimeError as e:
+        # ERP Database URL fehlt - Graceful Failure
+        error_msg = (
+            "⚠️ ERP-Datenbank ist nicht konfiguriert (fehlende Environment Variable). "
+            "Für Kundendaten (Accounts, Leads, Deals, Einwände) verwende bitte das "
+            "Knowledge Graph Tool (search_knowledge_base). "
+            "Das SQL Tool ist nur für finanzielle Transaktionsdaten gedacht."
+        )
+        logger.warning(f"❌ ERP Database not configured: {e}")
+        return error_msg
             
     except ValueError as e:
         # Source nicht gefunden oder Config-Fehler
@@ -182,6 +193,16 @@ def get_sql_schema(source_id: str = "erp_postgres", table_names: List[str] = Non
         
         logger.info(f"✅ Schema retrieved for {len(tables_to_inspect)} table(s)")
         return result_str
+    
+    except RuntimeError as e:
+        # ERP Database URL fehlt - Graceful Failure
+        error_msg = (
+            "⚠️ ERP-Datenbank ist nicht konfiguriert (fehlende Environment Variable). "
+            "Dieses Tool ist nicht verfügbar. Verwende das Knowledge Graph Tool "
+            "(search_knowledge_base) für CRM-Daten."
+        )
+        logger.warning(f"❌ ERP Database not configured: {e}")
+        return error_msg
         
     except ValueError as e:
         # Source nicht gefunden oder Config-Fehler
