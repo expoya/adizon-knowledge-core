@@ -106,10 +106,27 @@ class CRMSyncOrchestrator:
             logger.debug("Phase 1: Fetching data from CRM...")
             sync_status.update_phase(SyncPhase.FETCHING, "Fetching data from CRM...")
             
-            # TEMPORARY: Disable incremental sync for debugging
-            # The queries with Modified_Time filter are causing issues
+            # INCREMENTAL SYNC DISABLED: Modified_Time filter not working with Zoho COQL
+            # 
+            # ISSUE: Zoho COQL Modified_Time filter causes:
+            # 1. SYNTAX_ERROR on Leads (dual datetime filters conflict?)
+            # 2. Empty responses on Accounts/Contacts (no error, just empty)
+            # 3. Works perfectly WITHOUT Modified_Time filter
+            # 
+            # TESTED FORMATS (all failed):
+            # - '2026-01-09T20:29:23+00:00' ❌
+            # - '2026-01-09T20:29:23' ❌
+            # - '2024-04-01T00:00:00+00:00' ✅ (works for Created_Time!)
+            # 
+            # HYPOTHESIS: Modified_Time might not be filterable via COQL
+            # or requires special handling/different field name.
+            # 
+            # WORKAROUND: Full sync is fast enough with SMOKE TEST limits
+            # (58k nodes in 6 minutes). Consider REST API "modified_since"
+            # parameter for true incremental sync in the future.
+            # 
             last_sync_time = None  # Force FULL SYNC
-            logger.info(f"📥 FULL SYNC: Incremental sync temporarily disabled for debugging")
+            logger.info(f"📥 FULL SYNC: Incremental sync disabled (Modified_Time filter not supported)")
             
             # last_sync_time = await self._get_last_sync_time()
             # if last_sync_time:

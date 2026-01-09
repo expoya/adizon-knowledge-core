@@ -207,6 +207,8 @@ class ZohoCRMProvider(CRMProvider):
                     where_clause = "id is not null"
                     
                     # === INCREMENTAL SYNC: Add Modified_Time filter ===
+                    # NOTE: Currently disabled in sync_orchestrator.py
+                    # Modified_Time filtering causes SYNTAX_ERROR and empty responses
                     if last_sync_time:
                         # CRITICAL: Zoho COQL datetime format REQUIRES timezone!
                         # Format: 'YYYY-MM-DDTHH:MM:SS+00:00' (milliseconds must be removed)
