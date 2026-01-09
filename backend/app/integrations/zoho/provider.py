@@ -171,11 +171,11 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # Fetch from Books API
                     if entity_type == "BooksInvoices":
-                        data = await self.books_client.fetch_all_invoices(max_pages=1)  # 🔥 SMOKE TEST
+                        data = await self.books_client.fetch_all_invoices(limit=200, max_pages=999)
                         for record in data:
                             results.append(process_books_invoice(record, label))
                     elif entity_type == "BooksSubscriptions":
-                        data = await self.books_client.fetch_all_subscriptions(max_pages=1)  # 🔥 SMOKE TEST
+                        data = await self.books_client.fetch_all_subscriptions(limit=200, max_pages=999)
                         for record in data:
                             results.append(process_books_subscription(record, label))
                     else:
@@ -196,25 +196,25 @@ class ZohoCRMProvider(CRMProvider):
                         self.client,
                         module_name,
                         fields,
-                        limit=50,  # 🔥 SMOKE TEST
-                        max_pages=1  # 🔥 SMOKE TEST
+                        limit=200,  # Max 200 per page for REST API
+                        max_pages=999  # Fetch all pages (will stop when no more data)
                     )
                 else:
                     # Regular CRM modules use COQL
                     where_clause = "id is not null"
                     
-                    # Special filter for Leads
+                    # Special filter for Leads: Only import Leads created after 2024-04-01
                     if module_name == "Leads":
                         where_clause = "id is not null AND Created_Time > '2024-04-01T00:00:00+00:00'"
-                        logger.info(f"    📅 Applying Leads filter: Created_Time > 2024-04-01")
+                        logger.info(f"    📅 Applying Leads filter: Created_Time > 2024-04-01 (prevents importing 117k old leads)")
                     
                     data = await fetch_via_coql(
                         self.client,
                         module_name,
                         fields,
                         where_clause=where_clause,
-                        limit=50,  # 🔥 SMOKE TEST
-                        max_pages=1  # 🔥 SMOKE TEST
+                        limit=10000,  # Zoho COQL max: 10,000 records per query
+                        max_pages=999  # Fetch all pages with pagination (OFFSET-based)
                     )
                 
                 # === CHECK DATA ===
@@ -229,37 +229,9 @@ class ZohoCRMProvider(CRMProvider):
                     contacts_data = data
                 
                 # === PROCESS RECORDS ===
-                # 🐛 DEBUG: Count records WITH and WITHOUT Account/Parent lookups
-                records_with_lookup = 0
-                records_without_lookup = 0
-                lookup_field = None
-                
-                # Identify the main lookup field for this entity type
-                if "Account_Name" in fields:
-                    lookup_field = "Account_Name"
-                elif "Parent_Id" in fields:
-                    lookup_field = "Parent_Id"
-                elif "What_Id" in fields:
-                    lookup_field = "What_Id"
-                
-                for i, record in enumerate(data):
-                    # 🐛 DEBUG: Log first 3 records to see variety
-                    if i < 3:
-                        logger.warning(f"    🐛 DEBUG {entity_type} #{i+1}: {record}")
-                    
-                    # Count lookup presence
-                    if lookup_field:
-                        if record.get(lookup_field):
-                            records_with_lookup += 1
-                        else:
-                            records_without_lookup += 1
-                    
+                for record in data:
                     processed = process_zoho_record(record, label, fields, relations)
                     results.append(processed)
-                
-                # 🐛 DEBUG: Log lookup statistics
-                if lookup_field:
-                    logger.warning(f"    🐛 DEBUG {entity_type}: {lookup_field} present in {records_with_lookup}/{len(data)} records (missing: {records_without_lookup})")
                 
                 logger.info(f"    ✅ Processed {len(data)} {entity_type}")
                 
@@ -280,7 +252,7 @@ class ZohoCRMProvider(CRMProvider):
                     self.client,
                     accounts=accounts_data,
                     contacts=contacts_data,
-                    limit_per_entity=50  # 🔥 SMOKE TEST: 50 emails per entity
+                    limit_per_entity=200  # Max 200 emails per Account/Contact
                 )
                 
                 # Process emails
