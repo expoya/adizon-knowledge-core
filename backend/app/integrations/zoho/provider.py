@@ -344,7 +344,8 @@ class ZohoCRMProvider(CRMProvider):
                 "fields": ["id", "Subject", "Account", "Total", "Status"],
                 "relations": [
                     {"field": "Account", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
-                ]
+                ],
+                "skip_coql": True  # Finance module does not support COQL
             },
             "Subscriptions": {
                 "label": "Subscription",
@@ -352,12 +353,13 @@ class ZohoCRMProvider(CRMProvider):
                 "fields": ["id", "Name", "Account", "Total", "Status"],
                 "relations": [
                     {"field": "Account", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
-                ]
+                ],
+                "skip_coql": True  # Finance module does not support COQL
             },
             "Einwaende": {
                 "label": "Einwand",
                 "module_name": "Einw_nde",
-                "fields": ["id", "Name", "Lead", "Grund", "Status"],
+                "fields": ["id", "Name", "Lead", "Einwand_Kategorie", "Gespr_chszeitpunkt", "Einwandbeschreibung"],
                 "relations": [
                     {"field": "Lead", "edge": "HAS_OBJECTION", "target_label": "Lead", "direction": "INCOMING"}
                 ]
@@ -377,12 +379,13 @@ class ZohoCRMProvider(CRMProvider):
                 "fields": ["id", "Subject", "Account", "Total", "Status"],
                 "relations": [
                     {"field": "Account", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
-                ]
+                ],
+                "skip_coql": True  # Finance module does not support COQL
             },
             "Einw_nde": {  # Alias for Einwaende
                 "label": "Einwand",
                 "module_name": "Einw_nde",
-                "fields": ["id", "Name", "Lead", "Grund", "Status"],
+                "fields": ["id", "Name", "Lead", "Einwand_Kategorie", "Gespr_chszeitpunkt", "Einwandbeschreibung"],
                 "relations": [
                     {"field": "Lead", "edge": "HAS_OBJECTION", "target_label": "Lead", "direction": "INCOMING"}
                 ]
@@ -434,6 +437,11 @@ class ZohoCRMProvider(CRMProvider):
                         logger.warning(f"    ⚠️ Skipping {entity_type} (API error): {e}")
                         continue
                 
+                # Skip COQL for Finance modules (not supported)
+                if config.get("skip_coql", False):
+                    logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported (Finance module). TODO: Use Finance API.")
+                    continue
+                
                 # Build SELECT query with all fields
                 fields_to_select = config["fields"].copy()
                 
@@ -476,7 +484,19 @@ class ZohoCRMProvider(CRMProvider):
                             continue  # Already processed
                         
                         value = record.get(field)
-                        if value and not isinstance(value, dict):  # Skip lookup fields
+                        
+                        # Handle lookup fields: Store as flat properties AND create relations
+                        if isinstance(value, dict):
+                            # Lookup field: Extract ID and name for RAG/Embeddings
+                            lookup_id = value.get("id")
+                            lookup_name = value.get("name")
+                            
+                            if lookup_id:
+                                properties[f"{field.lower()}_id"] = str(lookup_id)
+                            if lookup_name:
+                                properties[f"{field.lower()}_name"] = str(lookup_name)
+                        elif value:
+                            # Scalar field: store directly
                             properties[field.lower()] = value
                     
                     # Extract relations
@@ -490,8 +510,16 @@ class ZohoCRMProvider(CRMProvider):
                         
                         # Extract ID from lookup field (dict with "id" key)
                         target_id = None
+                        target_name = None
                         if isinstance(field_value, dict):
                             target_id = field_value.get("id")
+                            target_name = field_value.get("name")
+                            
+                            # CRITICAL: Also store lookup as flat property for embeddings
+                            if target_id:
+                                properties[f"{field_name.lower()}_id"] = str(target_id)
+                            if target_name:
+                                properties[f"{field_name.lower()}_name"] = str(target_name)
                         elif isinstance(field_value, str):
                             target_id = field_value
                         

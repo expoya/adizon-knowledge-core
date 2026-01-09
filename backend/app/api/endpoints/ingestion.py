@@ -447,6 +447,7 @@ async def sync_crm_entities(
                         "source_id": entity["source_id"],
                         "target_id": rel["target_id"],
                         "edge_type": rel["edge_type"],
+                        "target_label": rel.get("target_label", "CRMEntity"),
                         "direction": rel["direction"]
                     })
                     
@@ -515,31 +516,30 @@ async def sync_crm_entities(
                     })
                 continue
         
-        # Step 3: Create relationships grouped by edge type
-        relations_by_edge = {}
+        # Step 3: Create relationships grouped by edge type + target label
+        # Group by (edge_type, target_label, direction) for proper typing
+        relations_by_key = {}
         for rel in all_relations:
-            edge_type = rel["edge_type"]
-            if edge_type not in relations_by_edge:
-                relations_by_edge[edge_type] = []
-            relations_by_edge[edge_type].append(rel)
+            key = (rel["edge_type"], rel.get("target_label", "CRMEntity"), rel["direction"])
+            if key not in relations_by_key:
+                relations_by_key[key] = []
+            relations_by_key[key].append(rel)
         
-        logger.info(f"🔗 Creating {len(all_relations)} relationships across {len(relations_by_edge)} edge types")
+        logger.info(f"🔗 Creating {len(all_relations)} relationships across {len(relations_by_key)} relation types")
         
-        for edge_type, relations in relations_by_edge.items():
+        for (edge_type, target_label, direction), relations in relations_by_key.items():
             try:
-                # Sanitize edge type
+                # Sanitize edge type and label
                 safe_edge = ''.join(c for c in edge_type if c.isalnum() or c == '_')
+                safe_target_label = ''.join(c for c in target_label if c.isalnum() or c == '_')
                 
-                # Separate by direction
-                outgoing = [r for r in relations if r["direction"] == "OUTGOING"]
-                incoming = [r for r in relations if r["direction"] == "INCOMING"]
-                
-                # Create OUTGOING relationships: (source)-[edge]->(target)
-                if outgoing:
+                # Create relationships with proper target label
+                if direction == "OUTGOING":
+                    # (source)-[edge]->(target)
                     cypher_query = f"""
                     UNWIND $batch as row
                     MATCH (a {{source_id: row.source_id}})
-                    MERGE (b:CRMEntity {{source_id: row.target_id}})
+                    MERGE (b:{safe_target_label} {{source_id: row.target_id}})
                     MERGE (a)-[r:{safe_edge}]->(b)
                     ON CREATE SET r.created_at = datetime()
                     RETURN count(r) as count
@@ -547,18 +547,18 @@ async def sync_crm_entities(
                     
                     result = await graph_store.query(
                         cypher_query,
-                        parameters={"batch": outgoing}
+                        parameters={"batch": relations}
                     )
                     
                     if result and len(result) > 0:
-                        logger.info(f"  ✅ {edge_type} (OUTGOING): {result[0].get('count', 0)} edges")
+                        logger.info(f"  ✅ {edge_type} → {target_label} (OUTGOING): {result[0].get('count', 0)} edges")
                 
-                # Create INCOMING relationships: (target)-[edge]->(source)
-                if incoming:
+                elif direction == "INCOMING":
+                    # (target)-[edge]->(source)
                     cypher_query = f"""
                     UNWIND $batch as row
                     MATCH (a {{source_id: row.source_id}})
-                    MERGE (b:CRMEntity {{source_id: row.target_id}})
+                    MERGE (b:{safe_target_label} {{source_id: row.target_id}})
                     MERGE (b)-[r:{safe_edge}]->(a)
                     ON CREATE SET r.created_at = datetime()
                     RETURN count(r) as count
@@ -566,14 +566,14 @@ async def sync_crm_entities(
                     
                     result = await graph_store.query(
                         cypher_query,
-                        parameters={"batch": incoming}
+                        parameters={"batch": relations}
                     )
                     
                     if result and len(result) > 0:
-                        logger.info(f"  ✅ {edge_type} (INCOMING): {result[0].get('count', 0)} edges")
+                        logger.info(f"  ✅ {target_label} → {edge_type} (INCOMING): {result[0].get('count', 0)} edges")
                     
             except Exception as e:
-                error_msg = f"Error creating {edge_type} relationships: {str(e)}"
+                error_msg = f"Error creating {edge_type} → {target_label} relationships: {str(e)}"
                 logger.error(f"❌ {error_msg}")
                 errors.append(error_msg)
                 continue
