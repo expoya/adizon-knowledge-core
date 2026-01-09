@@ -230,9 +230,10 @@ class ZohoCRMProvider(CRMProvider):
                 
                 # === PROCESS RECORDS ===
                 for i, record in enumerate(data):
-                    # 🐛 DEBUG: Log first record of each type to see raw data
+                    # 🐛 DEBUG: Log first record to see what Zoho returns
                     if i == 0:
-                        logger.info(f"    🐛 DEBUG: First {entity_type} record: {record}")
+                        logger.warning(f"    🐛 DEBUG {entity_type}: Raw record = {record}")
+                        logger.warning(f"    🐛 DEBUG {entity_type}: Requested fields = {fields}")
                     
                     processed = process_zoho_record(record, label, fields, relations)
                     results.append(processed)

@@ -46,7 +46,10 @@ async def fetch_via_coql(
         try:
             # Build paginated query
             query = f"SELECT {', '.join(fields)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
-            logger.debug(f"    Query (Page {page}): {query}")
+            
+            # 🐛 DEBUG: Log query to see what we're requesting
+            if page == 1:
+                logger.warning(f"    🐛 DEBUG COQL Query for {module_name}: {query}")
             
             # Execute query via COQL endpoint
             response = await client.post(
