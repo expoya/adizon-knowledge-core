@@ -17,6 +17,7 @@ from app.services.graph_store import get_graph_store_service
 from app.tools.knowledge import search_knowledge_base
 from app.tools.sql import execute_sql_query, get_sql_schema
 from app.tools.crm import get_crm_facts
+from prompts import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -84,24 +85,8 @@ async def router_node(state: AgentState) -> AgentState:
     # Verwende LLM für Intent Classification
     llm = get_llm(temperature=0.0, streaming=False)
     
-    classification_prompt = """Du bist ein Intent Classifier für einen RAG Agenten.
-
-Analysiere die folgende Benutzeranfrage und klassifiziere sie:
-
-INTENT TYPES:
-- "sql": Frage nach finanziellen Daten aus dem ERP-System (Rechnungen, Zahlungen, Buchhaltung, Finanztransaktionen)
-- "knowledge": Frage nach CRM-Daten (Kunden, Accounts, Leads, Deals, Kontakte, Einwände, Meetings) ODER Frage nach Dokumenten, Konzepten, Erklärungen, Prozessen aus der Wissensdatenbank
-- "general": Allgemeine Konversation oder Small Talk
-
-WICHTIG:
-- Kunden, Accounts, Leads, Deals, Kontakte, Einwände → "knowledge" (CRM-Daten im Graph)
-- Rechnungen, Zahlungen, Buchhaltung → "sql" (ERP-Daten in PostgreSQL)
-
-BENUTZERANFRAGE:
-{query}
-
-Antworte NUR mit einem der drei Wörter: sql, knowledge, oder general
-Keine Erklärung, nur das Klassifikations-Wort!"""
+    # Lade Intent Classification Prompt aus File
+    classification_prompt = get_prompt("intent_classification")
     
     try:
         classification_result = await llm.ainvoke([
@@ -256,22 +241,8 @@ async def sql_node(state: AgentState) -> AgentState:
         # Schritt 2: Generiere SQL Query mit LLM
         llm = get_llm(temperature=0.0, streaming=False)
         
-        sql_generation_prompt = """Du bist ein PostgreSQL-Experte. Generiere eine sichere SELECT Query basierend auf der Benutzeranfrage und dem bereitgestellten Schema.
-
-WICHTIGE REGELN:
-- Verwende NUR SELECT Statements (kein INSERT, UPDATE, DELETE)
-- Nutze die korrekten Tabellen- und Spaltennamen aus dem Schema
-- Verwende PostgreSQL-Syntax
-- Gib NUR die SQL Query zurück, keine Erklärung
-- Die Query sollte in einer Zeile oder sauber formatiert sein
-
-SCHEMA:
-{schema}
-
-BENUTZERANFRAGE:
-{query}
-
-SQL QUERY:"""
+        # Lade SQL Generation Prompt aus File
+        sql_generation_prompt = get_prompt("sql_generation")
         
         sql_response = await llm.ainvoke([
             SystemMessage(content=sql_generation_prompt.format(
@@ -440,27 +411,8 @@ async def generation_node(state: AgentState) -> AgentState:
     # Generiere finale Antwort
     llm = get_llm(temperature=0.7, streaming=False)
     
-    generation_prompt = """Du bist Adizon, ein hilfreicher Wissens-Assistent für ein Unternehmen.
-
-Deine Aufgabe ist es, die Benutzeranfrage basierend auf den bereitgestellten Informationen zu beantworten.
-
-WICHTIGE REGELN:
-- Antworte präzise und strukturiert auf Deutsch
-- Verwende NUR die bereitgestellten Informationen
-- Wenn keine relevanten Informationen vorhanden sind, sage das ehrlich
-- Zitiere Fakten aus dem Kontext
-- Verwende KEIN Markdown, nur reinen Text
-- Erwähne NICHT "Datenbank-Ergebnisse" oder "Wissensdatenbank", sondern integriere die Informationen natürlich
-- Bei Zahlen und Fakten aus Datenbanken: Sei präzise
-- Bei Dokumenten-Wissen: Nenne die Quelle, falls angegeben
-
-VERFÜGBARE INFORMATIONEN:
-{context}
-
-BENUTZERANFRAGE:
-{query}
-
-ANTWORT:"""
+    # Lade Answer Generation Prompt aus File
+    generation_prompt = get_prompt("answer_generation")
     
     try:
         response = await llm.ainvoke([
