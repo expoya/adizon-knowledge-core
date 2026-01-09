@@ -244,372 +244,254 @@ class ZohoCRMProvider(CRMProvider):
         entity_types: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Fetches comprehensive master data from Zoho CRM with smart field resolution.
+        Fetches skeleton data from Zoho CRM with structured graph schema.
         
-        This method automatically adapts to the Zoho schema by:
-        1. Fetching field metadata for each module
-        2. Resolving field names from candidate lists
-        3. Building queries only with valid fields
-        4. Gracefully handling missing fields
+        Returns nodes with specific labels and relations for direct graph ingestion.
         
-        Args:
-            entity_types: Zoho module names. Defaults to:
-                         ["Users", "Accounts", "Contacts", "Leads", "Deals", 
-                          "Events", "Invoices", "Subscriptions"]
-            
         Returns:
-            List of entity records with standardized format:
+            List of records:
             {
                 "source_id": "zoho_{id}",
-                "name": "...",
-                "type": "{Type}",
-                "email": "...",  # Optional
-                "related_to": "zoho_{parent_id}",  # Optional
-                "relation_type": "HAS_DEAL",  # Optional
-                "amount": 1000,  # Optional (Deals, Invoices)
-                "stage": "Negotiation",  # Optional (Deals)
-                "status": "Active",  # Optional (Events, Subscriptions)
-                "total": 500,  # Optional (Subscriptions, Invoices)
-                "start_time": "2024-01-01",  # Optional (Events)
+                "label": "Account",  # Specific node label
+                "properties": {"name": "...", "amount": ...},  # Scalar fields
+                "relations": [
+                    {
+                        "target_id": "zoho_{id}",
+                        "edge_type": "HAS_OWNER",
+                        "direction": "OUTGOING"
+                    }
+                ]
             }
         """
-        if entity_types is None:
-            entity_types = [
-                "Users",
-                "Accounts", 
-                "Contacts",
-                "Leads",
-                "Deals",
-                "Events",
-                "Invoices",
-                "Subscriptions"
-            ]
-        
-        logger.info(f"📥 Fetching skeleton data with smart field resolution")
-        logger.info(f"  Entity types: {entity_types}")
-        
-        # Module configurations with field candidates
-        MODULE_CONFIGS = {
-            "Users": {
-                "name_candidates": ["full_name", "name", "Full_Name"],
-                "email_candidates": ["email", "Email"],
-                "module_name": "Users",
-                "relation_type": None,
-                "use_api": True,  # Special case: Use /users API instead of COQL
+        # Schema mapping for graph structure
+        SCHEMA_MAPPING = {
+            "Leads": {
+                "label": "Lead",
+                "module_name": "Leads",
+                "fields": ["id", "Last_Name", "First_Name", "Company", "Email", "Owner", "Converted_Account"],
+                "relations": [
+                    {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"},
+                    {"field": "Converted_Account", "edge": "IS_CONVERTED_FROM", "target_label": "Account", "direction": "INCOMING"}
+                ]
             },
             "Accounts": {
-                "name_candidates": ["Account_Name", "Name"],
-                "email_candidates": [],
-                "related_candidates": ["Owner"],
-                "relation_type": "OWNED_BY",
+                "label": "Account",
                 "module_name": "Accounts",
+                "fields": ["id", "Account_Name", "Owner", "Parent_Account"],
+                "relations": [
+                    {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"},
+                    {"field": "Parent_Account", "edge": "PARENT_OF", "target_label": "Account", "direction": "INCOMING"}
+                ]
             },
             "Contacts": {
-                "name_candidates": ["Last_Name", "First_Name"],  # Will be combined
-                "email_candidates": ["Email"],
-                "related_candidates": ["Account_Name", "Account"],
-                "relation_type": "WORKS_AT",
+                "label": "Contact",
                 "module_name": "Contacts",
-            },
-            "Leads": {
-                "name_candidates": ["Last_Name", "First_Name"],  # Will be combined
-                "email_candidates": ["Email"],
-                "related_candidates": ["Owner"],
-                "relation_type": "OWNED_BY",
-                "module_name": "Leads",
+                "fields": ["id", "Last_Name", "First_Name", "Email", "Account_Name", "Owner"],
+                "relations": [
+                    {"field": "Account_Name", "edge": "WORKS_AT", "target_label": "Account", "direction": "OUTGOING"},
+                    {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
+                ]
             },
             "Deals": {
-                "name_candidates": ["Deal_Name", "Name"],
-                "amount_candidates": ["Amount", "Total", "Grand_Total"],
-                "stage_candidates": ["Stage"],
-                "related_candidates": ["Account_Name", "Leads", "Contact_Name"],
-                "relation_type": "HAS_DEAL",
+                "label": "Deal",
                 "module_name": "Deals",
+                "fields": ["id", "Deal_Name", "Account_Name", "Contact_Name", "Stage", "Amount", "Owner", "Closing_Date"],
+                "relations": [
+                    {"field": "Account_Name", "edge": "HAS_DEAL", "target_label": "Account", "direction": "INCOMING"},
+                    {"field": "Contact_Name", "edge": "ASSOCIATED_WITH", "target_label": "Contact", "direction": "OUTGOING"},
+                    {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
+                ]
+            },
+            "Tasks": {
+                "label": "Task",
+                "module_name": "Tasks",
+                "fields": ["id", "Subject", "Status", "Who_Id", "What_Id", "Owner"],
+                "relations": [
+                    {"field": "Who_Id", "edge": "HAS_TASK", "target_label": "CRMEntity", "direction": "INCOMING"},
+                    {"field": "What_Id", "edge": "HAS_TASK", "target_label": "CRMEntity", "direction": "INCOMING"},
+                    {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
+                ]
+            },
+            "Notes": {
+                "label": "Note",
+                "module_name": "Notes",
+                "fields": ["id", "Note_Title", "Note_Content", "Parent_Id", "Owner"],
+                "relations": [
+                    {"field": "Parent_Id", "edge": "HAS_NOTE", "target_label": "CRMEntity", "direction": "INCOMING"},
+                    {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"}
+                ]
             },
             "Events": {
-                "name_candidates": ["Name", "calendlyforzohocrm__Name1"],
-                "status_candidates": ["calendlyforzohocrm__Status", "Status"],
-                "start_time_candidates": ["calendlyforzohocrm__Start_Time", "Start_DateTime"],
-                "related_candidates": ["calendlyforzohocrm__Lead", "calendlyforzohocrm__Contact", "Verkn_pfter_Account"],
-                "relation_type": "HAS_EVENT",
-                "module_name": "calendlyforzohocrm__Calendly_Events",  # Custom module
-            },
-            "Subscriptions": {
-                "name_candidates": ["Name", "Subscription_Name"],
-                "total_candidates": ["Total", "Amount"],
-                "status_candidates": ["Status"],
-                "related_candidates": ["Account", "Account_Name"],
-                "relation_type": "HAS_SUBSCRIPTION",
-                "module_name": "Subscriptions__s",  # Custom module
+                "label": "CalendlyEvent",
+                "module_name": "calendlyforzohocrm__Calendly_Events",
+                "fields": ["id", "Name", "calendlyforzohocrm__Lead", "calendlyforzohocrm__Contact", "Verkn_pfter_Account", "calendlyforzohocrm__Status", "calendlyforzohocrm__Start_Time"],
+                "relations": [
+                    {"field": "calendlyforzohocrm__Lead", "edge": "HAS_EVENT", "target_label": "Lead", "direction": "INCOMING"},
+                    {"field": "calendlyforzohocrm__Contact", "edge": "HAS_EVENT", "target_label": "Contact", "direction": "INCOMING"},
+                    {"field": "Verkn_pfter_Account", "edge": "HAS_EVENT", "target_label": "Account", "direction": "INCOMING"}
+                ]
             },
             "Invoices": {
-                "name_candidates": ["Subject", "Name", "Invoice_Number"],
-                "total_candidates": ["Total", "Grand_Total", "Sub_Total"],
-                "status_candidates": ["Status"],
-                "related_candidates": ["Account", "Account_Name", "Contact_Name"],
-                "relation_type": "HAS_INVOICE",
-                "module_name": "Zoho_Books",  # Custom module
+                "label": "Invoice",
+                "module_name": "Zoho_Books",
+                "fields": ["id", "Subject", "Account", "Total", "Status"],
+                "relations": [
+                    {"field": "Account", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
+                ]
             },
+            "Subscriptions": {
+                "label": "Subscription",
+                "module_name": "Subscriptions__s",
+                "fields": ["id", "Name", "Account", "Total", "Status"],
+                "relations": [
+                    {"field": "Account", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
+                ]
+            },
+            "Einwaende": {
+                "label": "Einwand",
+                "module_name": "Einw_nde",
+                "fields": ["id", "Name", "Lead", "Grund", "Status"],
+                "relations": [
+                    {"field": "Lead", "edge": "HAS_OBJECTION", "target_label": "Lead", "direction": "INCOMING"}
+                ]
+            },
+            "Attachments": {
+                "label": "Attachment",
+                "module_name": "Attachments",
+                "fields": ["id", "File_Name", "Parent_Id"],
+                "relations": [
+                    {"field": "Parent_Id", "edge": "HAS_DOCUMENTS", "target_label": "CRMEntity", "direction": "INCOMING"}
+                ]
+            }
         }
+        
+        if entity_types is None:
+            entity_types = list(SCHEMA_MAPPING.keys())
+        
+        logger.info(f"📥 Fetching skeleton data with graph schema")
+        logger.info(f"  Entity types: {entity_types}")
         
         results = []
         
         for entity_type in entity_types:
-            if entity_type not in MODULE_CONFIGS:
+            if entity_type not in SCHEMA_MAPPING:
                 logger.warning(f"⚠️ Unknown entity type: {entity_type}")
                 continue
             
-            config = MODULE_CONFIGS[entity_type]
+            config = SCHEMA_MAPPING[entity_type]
             module_name = config["module_name"]
+            label = config["label"]
             
-            logger.info(f"  📋 Processing {entity_type} (module: {module_name})...")
-            
-            # Special case: Users via API (not COQL)
-            if config.get("use_api"):
-                try:
-                    logger.debug("    Using /users API endpoint")
-                    response = await self.client.get("/crm/v6/users", params={"type": "ActiveUsers"})
-                    users = response.get("users", [])
-                    
-                    for user in users:
-                        entity = {
-                            "source_id": f"zoho_{user.get('id')}",
-                            "name": user.get("full_name") or user.get("name", "Unknown User"),
-                            "type": "User",
-                        }
-                        if user.get("email"):
-                            entity["email"] = user.get("email")
-                        results.append(entity)
-                    
-                    logger.info(f"    ✅ Fetched {len(users)} {entity_type}")
-                    continue  # Skip COQL logic for Users
-                    
-                except ZohoAPIError as e:
-                    logger.warning(
-                        f"    ⚠️ Skipping Users sync due to missing scope or permissions. "
-                        f"Error: {str(e)}"
-                    )
-                    continue
-                except Exception as e:
-                    logger.error(f"    ❌ Error fetching Users via API: {e}")
-                    continue
+            logger.info(f"  📋 Processing {entity_type} (module: {module_name}, label: {label})...")
             
             try:
-                # Resolve fields for this module
-                resolved_fields = {}
-                
-                # Resolve name field(s)
-                if entity_type in ["Contacts", "Leads"]:
-                    # Special case: name from First + Last
-                    first_name = await self._resolve_best_field(
-                        module_name, ["First_Name"]
-                    )
-                    last_name = await self._resolve_best_field(
-                        module_name, ["Last_Name"]
-                    )
-                    resolved_fields["first_name"] = first_name
-                    resolved_fields["last_name"] = last_name
-                else:
-                    name_field = await self._resolve_best_field(
-                        module_name, config["name_candidates"]
-                    )
-                    resolved_fields["name"] = name_field
-                
-                # Resolve optional fields
-                if "email_candidates" in config and config["email_candidates"]:
-                    email_field = await self._resolve_best_field(
-                        module_name, config["email_candidates"]
-                    )
-                    resolved_fields["email"] = email_field
-                
-                if "amount_candidates" in config:
-                    amount_field = await self._resolve_best_field(
-                        module_name, config["amount_candidates"]
-                    )
-                    resolved_fields["amount"] = amount_field
-                
-                if "stage_candidates" in config:
-                    stage_field = await self._resolve_best_field(
-                        module_name, config["stage_candidates"]
-                    )
-                    resolved_fields["stage"] = stage_field
-                
-                if "status_candidates" in config:
-                    status_field = await self._resolve_best_field(
-                        module_name, config["status_candidates"]
-                    )
-                    resolved_fields["status"] = status_field
-                
-                if "total_candidates" in config:
-                    total_field = await self._resolve_best_field(
-                        module_name, config["total_candidates"]
-                    )
-                    resolved_fields["total"] = total_field
-                
-                if "start_time_candidates" in config:
-                    start_time_field = await self._resolve_best_field(
-                        module_name, config["start_time_candidates"]
-                    )
-                    resolved_fields["start_time"] = start_time_field
-                
-                if "related_candidates" in config:
-                    related_field = await self._resolve_best_field(
-                        module_name, config["related_candidates"]
-                    )
-                    resolved_fields["related"] = related_field
-                
-                # Log resolved schema
-                logger.info(f"    🔧 Resolved schema for {entity_type}:")
-                for key, value in resolved_fields.items():
-                    if value:
-                        logger.info(f"      {key} -> {value}")
-                    else:
-                        logger.warning(f"      ⚠️ Skipping field '{key}' for {module_name} (not found)")
-                
-                # Check if we have minimum required fields
-                if entity_type in ["Contacts", "Leads"]:
-                    if not (resolved_fields.get("first_name") or resolved_fields.get("last_name")):
-                        logger.warning(f"    ⚠️ Skipping {entity_type}: No name fields found")
+                # Special case: Users via API
+                if entity_type == "Users":
+                    try:
+                        response = await self.client.get("/crm/v6/users", params={"type": "ActiveUsers"})
+                        users = response.get("users", [])
+                        
+                        for user in users:
+                            results.append({
+                                "source_id": f"zoho_{user.get('id')}",
+                                "label": "User",
+                                "properties": {
+                                    "name": user.get("full_name") or user.get("name", "Unknown User"),
+                                    "email": user.get("email"),
+                                    "zoho_id": user.get("id")
+                                },
+                                "relations": []
+                            })
+                        
+                        logger.info(f"    ✅ Fetched {len(users)} Users")
                         continue
-                else:
-                    if not resolved_fields.get("name"):
-                        logger.warning(f"    ⚠️ Skipping {entity_type}: No name field found")
+                        
+                    except Exception as e:
+                        logger.warning(f"    ⚠️ Skipping Users: {e}")
                         continue
                 
-                # Build COQL query with dynamic field list
-                select_fields = ["id"]
+                # Build SELECT query with all fields
+                fields_to_select = config["fields"].copy()
                 
-                if entity_type in ["Contacts", "Leads"]:
-                    if resolved_fields.get("first_name"):
-                        select_fields.append(resolved_fields["first_name"])
-                    if resolved_fields.get("last_name"):
-                        select_fields.append(resolved_fields["last_name"])
-                else:
-                    if resolved_fields.get("name"):
-                        select_fields.append(resolved_fields["name"])
-                
-                # Only add fields that were successfully resolved
-                if resolved_fields.get("email"):
-                    select_fields.append(resolved_fields["email"])
-                if resolved_fields.get("amount"):
-                    select_fields.append(resolved_fields["amount"])
-                if resolved_fields.get("stage"):
-                    select_fields.append(resolved_fields["stage"])
-                if resolved_fields.get("status"):
-                    select_fields.append(resolved_fields["status"])
-                if resolved_fields.get("total"):
-                    select_fields.append(resolved_fields["total"])
-                if resolved_fields.get("start_time"):
-                    select_fields.append(resolved_fields["start_time"])
-                if resolved_fields.get("related"):
-                    select_fields.append(resolved_fields["related"])
-                
-                # Empty Query Protection: Skip if only "id" field
-                if len(select_fields) <= 1:
-                    logger.warning(
-                        f"    ⚠️ Skipping {entity_type} (module: {module_name}): "
-                        f"No valid fields found (only 'id')"
-                    )
-                    continue
-                
-                # Build query with WHERE clause (required by Zoho COQL)
-                query = f"SELECT {', '.join(select_fields)} FROM {module_name} WHERE id is not null LIMIT 200"
+                # Build query
+                query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE id is not null LIMIT 200"
                 logger.debug(f"    Query: {query}")
                 
                 # Execute query
                 data = await self.execute_raw_query(query)
                 
-                # Check if query failed (empty result might mean COQL not supported)
+                # Check for Finance modules
                 if not data and module_name in ["Zoho_Books", "Subscriptions__s"]:
-                    logger.warning(
-                        f"    ⚠️ Skipping {entity_type} (module: {module_name}): "
-                        f"COQL not supported for Finance modules"
-                    )
+                    logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported for Finance modules")
                     continue
                 
                 # Process records
                 for record in data:
-                    entity = {
-                        "source_id": f"zoho_{record.get('id')}",
-                        "type": entity_type.rstrip("s") if entity_type not in ["Events", "Invoices", "Subscriptions"] else entity_type,
-                    }
+                    # Extract properties (scalar fields)
+                    properties = {"zoho_id": record.get("id")}
                     
-                    # Extract name (safe access with None checks)
-                    if entity_type in ["Contacts", "Leads"]:
-                        first_field = resolved_fields.get("first_name")
-                        last_field = resolved_fields.get("last_name")
-                        first = record.get(first_field, "") if first_field else ""
-                        last = record.get(last_field, "") if last_field else ""
-                        entity["name"] = f"{first} {last}".strip() or f"Unknown {entity_type}"
+                    # Name field logic
+                    if "Last_Name" in fields_to_select and "First_Name" in fields_to_select:
+                        first = record.get("First_Name", "")
+                        last = record.get("Last_Name", "")
+                        properties["name"] = f"{first} {last}".strip() or f"Unknown {label}"
+                    elif "Account_Name" in fields_to_select:
+                        properties["name"] = record.get("Account_Name", f"Unknown {label}")
+                    elif "Deal_Name" in fields_to_select:
+                        properties["name"] = record.get("Deal_Name", f"Unknown {label}")
+                    elif "Subject" in fields_to_select:
+                        properties["name"] = record.get("Subject", f"Unknown {label}")
+                    elif "Name" in fields_to_select:
+                        properties["name"] = record.get("Name", f"Unknown {label}")
                     else:
-                        name_field = resolved_fields.get("name")
-                        if name_field:
-                            entity["name"] = record.get(name_field, f"Unknown {entity_type}")
-                        else:
-                            entity["name"] = f"Unknown {entity_type}"
+                        properties["name"] = f"Unknown {label}"
                     
-                    # Extract optional fields (only if field was resolved)
-                    email_field = resolved_fields.get("email")
-                    if email_field:
-                        email_value = record.get(email_field)
-                        if email_value:
-                            entity["email"] = email_value
+                    # Add other scalar fields
+                    for field in fields_to_select:
+                        if field in ["id", "First_Name", "Last_Name", "Account_Name", "Deal_Name", "Subject", "Name"]:
+                            continue  # Already processed
+                        
+                        value = record.get(field)
+                        if value and not isinstance(value, dict):  # Skip lookup fields
+                            properties[field.lower()] = value
                     
-                    amount_field = resolved_fields.get("amount")
-                    if amount_field:
-                        amount_value = record.get(amount_field)
-                        if amount_value is not None:
-                            entity["amount"] = amount_value
+                    # Extract relations
+                    relations = []
+                    for rel_config in config.get("relations", []):
+                        field_name = rel_config["field"]
+                        field_value = record.get(field_name)
+                        
+                        if not field_value:
+                            continue
+                        
+                        # Extract ID from lookup field (dict with "id" key)
+                        target_id = None
+                        if isinstance(field_value, dict):
+                            target_id = field_value.get("id")
+                        elif isinstance(field_value, str):
+                            target_id = field_value
+                        
+                        if target_id:
+                            relations.append({
+                                "target_id": f"zoho_{target_id}",
+                                "edge_type": rel_config["edge"],
+                                "target_label": rel_config["target_label"],
+                                "direction": rel_config["direction"]
+                            })
                     
-                    stage_field = resolved_fields.get("stage")
-                    if stage_field:
-                        stage_value = record.get(stage_field)
-                        if stage_value:
-                            entity["stage"] = stage_value
-                    
-                    status_field = resolved_fields.get("status")
-                    if status_field:
-                        status_value = record.get(status_field)
-                        if status_value:
-                            entity["status"] = status_value
-                    
-                    total_field = resolved_fields.get("total")
-                    if total_field:
-                        total_value = record.get(total_field)
-                        if total_value is not None:
-                            entity["total"] = total_value
-                    
-                    start_time_field = resolved_fields.get("start_time")
-                    if start_time_field:
-                        start_time_value = record.get(start_time_field)
-                        if start_time_value:
-                            entity["start_time"] = start_time_value
-                    
-                    # Extract relationship (safe access)
-                    related_field = resolved_fields.get("related")
-                    if related_field:
-                        related_value = record.get(related_field)
-                        if related_value:
-                            # Handle both dict (lookup) and string formats
-                            if isinstance(related_value, dict) and related_value.get("id"):
-                                entity["related_to"] = f"zoho_{related_value['id']}"
-                                entity["relation_type"] = config["relation_type"]
-                            elif isinstance(related_value, str):
-                                entity["related_to"] = f"zoho_{related_value}"
-                                entity["relation_type"] = config["relation_type"]
-                    
-                    results.append(entity)
+                    results.append({
+                        "source_id": f"zoho_{record.get('id')}",
+                        "label": label,
+                        "properties": properties,
+                        "relations": relations
+                    })
                 
                 logger.info(f"    ✅ Fetched {len(data)} {entity_type}")
                 
             except ZohoAPIError as e:
-                # Handle Finance modules that don't support COQL
                 error_msg = str(e).lower()
-                if module_name in ["Zoho_Books", "Subscriptions__s"] and ("not_supported" in error_msg or "400" in str(e)):
-                    logger.warning(
-                        f"    ⚠️ Skipping {entity_type} (module: {module_name}): "
-                        f"Finance module doesn't support COQL queries"
-                    )
+                if module_name in ["Zoho_Books", "Subscriptions__s", "Einw_nde"] and ("not_supported" in error_msg or "400" in str(e)):
+                    logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported")
                     continue
                 else:
                     logger.error(f"❌ Zoho API error fetching {entity_type}: {e}")
@@ -622,7 +504,7 @@ class ZohoCRMProvider(CRMProvider):
         logger.info(f"✅ Total skeleton data fetched: {len(results)} records")
         
         return results
-
+    
     async def search_live_facts(self, entity_id: str, query_context: str) -> str:
         """
         Retrieves live facts about a Zoho entity.

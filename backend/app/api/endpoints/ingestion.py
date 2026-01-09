@@ -369,120 +369,153 @@ async def sync_crm_entities(
         
         logger.info(f"✅ Fetched {len(skeleton_data)} entities from CRM")
         
-        # Sync to Neo4j
+        # Sync to Neo4j with structured graph schema
         entities_created = 0
         entities_updated = 0
         errors = []
         synced_types = set()
         
+        # Step 1: Group entities by label for batch processing
+        entities_by_label = {}
+        all_relations = []
+        
         for entity in skeleton_data:
             try:
-                source_id = entity.get("source_id")
-                name = entity.get("name")
-                entity_type = entity.get("type")
-                email = entity.get("email")
-                related_to = entity.get("related_to")
-                relation_type = entity.get("relation_type")
-                
-                # Additional properties (for Deals, Events, etc.)
-                amount = entity.get("amount")
-                stage = entity.get("stage")
-                status_field = entity.get("status")
-                total = entity.get("total")
-                start_time = entity.get("start_time")
-                
-                if not source_id or not name:
-                    logger.warning(f"⚠️ Skipping entity with missing data: {entity}")
+                label = entity.get("label")
+                if not label:
+                    logger.warning(f"⚠️ Skipping entity without label: {entity}")
                     continue
                 
-                synced_types.add(entity_type)
+                synced_types.add(label)
                 
-                # MERGE query: Create or update node + relationships
-                cypher_query = """
-                MERGE (n:CRMEntity {source_id: $source_id})
+                # Group by label
+                if label not in entities_by_label:
+                    entities_by_label[label] = []
+                
+                entities_by_label[label].append({
+                    "source_id": entity["source_id"],
+                    "properties": entity.get("properties", {})
+                })
+                
+                # Collect relations
+                for rel in entity.get("relations", []):
+                    all_relations.append({
+                        "source_id": entity["source_id"],
+                        "target_id": rel["target_id"],
+                        "edge_type": rel["edge_type"],
+                        "direction": rel["direction"]
+                    })
+                    
+            except Exception as e:
+                logger.error(f"❌ Error processing entity: {e}")
+                errors.append(str(e))
+                continue
+        
+        logger.info(f"📊 Grouped into {len(entities_by_label)} labels with {len(all_relations)} relations")
+        
+        # Step 2: Create nodes per label (batch UNWIND)
+        for label, entities in entities_by_label.items():
+            try:
+                # Sanitize label (alphanumeric only)
+                safe_label = ''.join(c for c in label if c.isalnum() or c == '_')
+                
+                # Build dynamic MERGE query with label
+                # Note: Labels can't be parameterized in Cypher, so we use string formatting
+                # This is safe because we sanitize the label above
+                cypher_query = f"""
+                UNWIND $batch as row
+                MERGE (n:{safe_label} {{source_id: row.source_id}})
                 ON CREATE SET
-                    n.name = $name,
-                    n.type = $type,
-                    n.email = $email,
-                    n.amount = $amount,
-                    n.stage = $stage,
-                    n.status = $status,
-                    n.total = $total,
-                    n.start_time = $start_time,
+                    n += row.properties,
                     n.created_at = datetime(),
                     n.synced_at = datetime(),
                     n.source = $source
                 ON MATCH SET
-                    n.name = $name,
-                    n.type = $type,
-                    n.email = $email,
-                    n.amount = $amount,
-                    n.stage = $stage,
-                    n.status = $status,
-                    n.total = $total,
-                    n.start_time = $start_time,
-                    n.synced_at = datetime(),
-                    n.source = $source
-                
-                WITH n
-                WHERE $related_to IS NOT NULL
-                
-                // Merge parent node
-                MERGE (p:CRMEntity {source_id: $related_to})
-                
-                // Create relationships based on relation_type using FOREACH
-                WITH n, p
-                FOREACH (_ IN CASE WHEN $relation_type = 'OWNED_BY' THEN [1] ELSE [] END |
-                    MERGE (p)-[:OWNS]->(n)
-                )
-                FOREACH (_ IN CASE WHEN $relation_type = 'WORKS_AT' THEN [1] ELSE [] END |
-                    MERGE (n)-[:WORKS_AT]->(p)
-                )
-                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_DEAL' THEN [1] ELSE [] END |
-                    MERGE (p)-[:HAS_DEAL]->(n)
-                )
-                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_EVENT' THEN [1] ELSE [] END |
-                    MERGE (p)-[:HAS_EVENT]->(n)
-                )
-                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_SUBSCRIPTION' THEN [1] ELSE [] END |
-                    MERGE (p)-[:HAS_SUBSCRIPTION]->(n)
-                )
-                FOREACH (_ IN CASE WHEN $relation_type = 'HAS_INVOICE' THEN [1] ELSE [] END |
-                    MERGE (p)-[:HAS_INVOICE]->(n)
-                )
-                
-                RETURN n,
-                       CASE WHEN n.created_at = n.synced_at THEN 'created' ELSE 'updated' END as action
+                    n += row.properties,
+                    n.synced_at = datetime()
+                RETURN count(n) as count,
+                       sum(CASE WHEN n.created_at = n.synced_at THEN 1 ELSE 0 END) as created,
+                       sum(CASE WHEN n.created_at <> n.synced_at THEN 1 ELSE 0 END) as updated
                 """
                 
                 result = await graph_store.query(
                     cypher_query,
                     parameters={
-                        "source_id": source_id,
-                        "name": name,
-                        "type": entity_type,
-                        "email": email,
-                        "amount": amount,
-                        "stage": stage,
-                        "status": status_field,
-                        "total": total,
-                        "start_time": start_time,
-                        "related_to": related_to,
-                        "relation_type": relation_type,
-                        "source": provider_name,
+                        "batch": entities,
+                        "source": provider_name
                     }
                 )
                 
-                # Count created vs updated
                 if result and len(result) > 0:
-                    action = result[0].get("action")
-                    if action == "created":
-                        entities_created += 1
-                    else:
-                        entities_updated += 1
-                
+                    entities_created += result[0].get("created", 0)
+                    entities_updated += result[0].get("updated", 0)
+                    logger.info(f"  ✅ {label}: {result[0].get('count', 0)} nodes ({result[0].get('created', 0)} created)")
+                    
             except Exception as e:
-                error_msg = f"Error syncing entity {entity.get('source_id')}: {str(e)}"
+                error_msg = f"Error syncing {label} nodes: {str(e)}"
+                logger.error(f"❌ {error_msg}")
+                errors.append(error_msg)
+                continue
+        
+        # Step 3: Create relationships grouped by edge type
+        relations_by_edge = {}
+        for rel in all_relations:
+            edge_type = rel["edge_type"]
+            if edge_type not in relations_by_edge:
+                relations_by_edge[edge_type] = []
+            relations_by_edge[edge_type].append(rel)
+        
+        logger.info(f"🔗 Creating {len(all_relations)} relationships across {len(relations_by_edge)} edge types")
+        
+        for edge_type, relations in relations_by_edge.items():
+            try:
+                # Sanitize edge type
+                safe_edge = ''.join(c for c in edge_type if c.isalnum() or c == '_')
+                
+                # Separate by direction
+                outgoing = [r for r in relations if r["direction"] == "OUTGOING"]
+                incoming = [r for r in relations if r["direction"] == "INCOMING"]
+                
+                # Create OUTGOING relationships: (source)-[edge]->(target)
+                if outgoing:
+                    cypher_query = f"""
+                    UNWIND $batch as row
+                    MATCH (a {{source_id: row.source_id}})
+                    MERGE (b:CRMEntity {{source_id: row.target_id}})
+                    MERGE (a)-[r:{safe_edge}]->(b)
+                    ON CREATE SET r.created_at = datetime()
+                    RETURN count(r) as count
+                    """
+                    
+                    result = await graph_store.query(
+                        cypher_query,
+                        parameters={"batch": outgoing}
+                    )
+                    
+                    if result and len(result) > 0:
+                        logger.info(f"  ✅ {edge_type} (OUTGOING): {result[0].get('count', 0)} edges")
+                
+                # Create INCOMING relationships: (target)-[edge]->(source)
+                if incoming:
+                    cypher_query = f"""
+                    UNWIND $batch as row
+                    MATCH (a {{source_id: row.source_id}})
+                    MERGE (b:CRMEntity {{source_id: row.target_id}})
+                    MERGE (b)-[r:{safe_edge}]->(a)
+                    ON CREATE SET r.created_at = datetime()
+                    RETURN count(r) as count
+                    """
+                    
+                    result = await graph_store.query(
+                        cypher_query,
+                        parameters={"batch": incoming}
+                    )
+                    
+                    if result and len(result) > 0:
+                        logger.info(f"  ✅ {edge_type} (INCOMING): {result[0].get('count', 0)} edges")
+                    
+            except Exception as e:
+                error_msg = f"Error creating {edge_type} relationships: {str(e)}"
                 logger.error(f"❌ {error_msg}")
                 errors.append(error_msg)
                 continue
