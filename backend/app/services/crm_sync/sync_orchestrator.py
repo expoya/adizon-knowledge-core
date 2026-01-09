@@ -105,12 +105,17 @@ class CRMSyncOrchestrator:
             # === PHASE 1: Fetch Data ===
             logger.debug("Phase 1: Fetching data from CRM...")
             sync_status.update_phase(SyncPhase.FETCHING, "Fetching data from CRM...")
-            last_sync_time = await self._get_last_sync_time()
             
-            if last_sync_time:
-                logger.info(f"🔄 INCREMENTAL SYNC: Fetching records modified since {last_sync_time}")
-            else:
-                logger.info(f"📥 FULL SYNC: First sync or no previous timestamp found")
+            # TEMPORARY: Disable incremental sync - Zoho COQL datetime format issues
+            # TODO: Fix datetime format compatibility with Zoho COQL
+            last_sync_time = None  # Force FULL SYNC
+            logger.info(f"📥 FULL SYNC: Incremental sync temporarily disabled")
+            
+            # last_sync_time = await self._get_last_sync_time()
+            # if last_sync_time:
+            #     logger.info(f"🔄 INCREMENTAL SYNC: Fetching records modified since {last_sync_time}")
+            # else:
+            #     logger.info(f"📥 FULL SYNC: First sync or no previous timestamp found")
             
             logger.debug(f"Calling provider.fetch_skeleton_data()...")
             
