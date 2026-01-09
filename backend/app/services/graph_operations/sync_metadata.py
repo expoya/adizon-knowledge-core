@@ -68,7 +68,35 @@ class GraphSyncMetadata:
                 last_sync = result.records[0].get("last_sync_time")
                 if last_sync:
                     # Convert Neo4j DateTime to ISO string
-                    return last_sync.isoformat() if hasattr(last_sync, 'isoformat') else str(last_sync)
+                    iso_string = last_sync.isoformat() if hasattr(last_sync, 'isoformat') else str(last_sync)
+                    
+                    # CRITICAL: Truncate nanoseconds to milliseconds for Zoho COQL compatibility!
+                    # Neo4j stores timestamps with nanosecond precision (9 digits)
+                    # Zoho COQL only accepts milliseconds (3 digits) - Standard ISO 8601
+                    # Format: YYYY-MM-DDTHH:MM:SS.sss+00:00 (3 digits)
+                    if '.' in iso_string and ('+' in iso_string or 'Z' in iso_string):
+                        # Split into: datetime part, fractional part, timezone part
+                        datetime_part, rest = iso_string.split('.', 1)
+                        
+                        # Extract fractional seconds and timezone
+                        if '+' in rest:
+                            fractional, tz = rest.split('+', 1)
+                            tz = '+' + tz
+                        elif 'Z' in rest:
+                            fractional = rest.replace('Z', '')
+                            tz = 'Z'
+                        else:
+                            # No timezone, just fractional
+                            fractional = rest
+                            tz = ''
+                        
+                        # Truncate to 3 digits (milliseconds)
+                        fractional_ms = fractional[:3].ljust(3, '0')  # Pad with zeros if needed
+                        
+                        # Reconstruct: datetime.milliseconds+timezone
+                        iso_string = f"{datetime_part}.{fractional_ms}{tz}"
+                    
+                    return iso_string
             
             return None
             
