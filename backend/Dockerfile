@@ -38,8 +38,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Railway uses PORT env variable
 ENV PORT=8000
 
-# Set log level to show DEBUG logs
-ENV LOG_LEVEL=DEBUG
+# Set log level to show debug logs (lowercase required by uvicorn)
+ENV LOG_LEVEL=debug
 
 # Run the application (use shell form for PORT variable expansion)
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --log-level ${LOG_LEVEL}
