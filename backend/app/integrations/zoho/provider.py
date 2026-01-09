@@ -62,7 +62,7 @@ class ZohoCRMProvider(CRMProvider):
                 api_base_url=api_base_url
             )
             logger.info(f"ZohoCRMProvider initialized with Books support (org_id: {books_organization_id})")
-            else:
+        else:
             logger.info("ZohoCRMProvider initialized (CRM only, no Books)")
 
     def check_connection(self) -> bool:
