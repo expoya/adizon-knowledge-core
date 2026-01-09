@@ -234,7 +234,10 @@ class GraphQueryService:
     
     async def _search_by_keywords(self, keywords: List[str]):
         """
-        Search for entities matching keywords.
+        Search for entities matching keywords in ALL text properties.
+        
+        CRM entities use various name fields (deal_name, account_name_name, contact_name_name).
+        We search across ALL string properties to find matches.
         
         Args:
             keywords: List of keywords to search
@@ -242,21 +245,32 @@ class GraphQueryService:
         Returns:
             Query result
         """
-        # Try outgoing relationships first
+        # Search across ALL properties (name, deal_name, account_name_name, etc.)
         result = await self._run_sync(
             self.driver.execute_query,
             """
             MATCH (n)
-            WHERE n.name IS NOT NULL
-              AND (n.status = 'APPROVED' OR n.status IS NULL)
-              AND ANY(keyword IN $keywords WHERE toLower(n.name) CONTAINS toLower(keyword))
+            WHERE (n.status = 'APPROVED' OR n.status IS NULL)
+              AND ANY(keyword IN $keywords WHERE 
+                  toLower(coalesce(n.name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.deal_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.contact_name_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.company, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.first_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.last_name, '')) CONTAINS toLower(keyword)
+              )
             WITH n LIMIT 10
             OPTIONAL MATCH (n)-[r]->(m)
             WHERE (m.status = 'APPROVED' OR m.status IS NULL)
               AND (r.status = 'APPROVED' OR r.status IS NULL)
-            RETURN labels(n)[0] as type, n.name as name,
-                   type(r) as relationship, m.name as related_to
-            LIMIT 20
+            RETURN 
+                labels(n)[0] as type, 
+                coalesce(n.name, n.deal_name, n.account_name_name, n.contact_name_name, n.first_name + ' ' + n.last_name, 'Unknown') as name,
+                n.source_id as entity_id,
+                type(r) as relationship, 
+                coalesce(m.name, m.deal_name, m.account_name_name, m.contact_name_name, m.first_name + ' ' + m.last_name) as related_to
+            LIMIT 30
             """,
             keywords=keywords,
             database_="neo4j",
@@ -269,14 +283,24 @@ class GraphQueryService:
                 self.driver.execute_query,
                 """
                 MATCH (n)<-[r]-(m)
-                WHERE n.name IS NOT NULL
-                  AND (n.status = 'APPROVED' OR n.status IS NULL)
+                WHERE (n.status = 'APPROVED' OR n.status IS NULL)
                   AND (m.status = 'APPROVED' OR m.status IS NULL)
                   AND (r.status = 'APPROVED' OR r.status IS NULL)
-                  AND ANY(keyword IN $keywords WHERE toLower(n.name) CONTAINS toLower(keyword))
-                RETURN labels(n)[0] as type, n.name as name,
-                       type(r) as relationship, m.name as related_from
-                LIMIT 20
+                  AND ANY(keyword IN $keywords WHERE 
+                      toLower(coalesce(n.name, '')) CONTAINS toLower(keyword)
+                      OR toLower(coalesce(n.deal_name, '')) CONTAINS toLower(keyword)
+                      OR toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(keyword)
+                      OR toLower(coalesce(n.contact_name_name, '')) CONTAINS toLower(keyword)
+                      OR toLower(coalesce(n.first_name, '')) CONTAINS toLower(keyword)
+                      OR toLower(coalesce(n.last_name, '')) CONTAINS toLower(keyword)
+                  )
+                RETURN 
+                    labels(n)[0] as type, 
+                    coalesce(n.name, n.deal_name, n.account_name_name, n.contact_name_name, n.first_name + ' ' + n.last_name, 'Unknown') as name,
+                    n.source_id as entity_id,
+                    type(r) as relationship, 
+                    coalesce(m.name, m.deal_name, m.account_name_name, m.contact_name_name) as related_from
+                LIMIT 30
                 """,
                 keywords=keywords,
                 database_="neo4j",
@@ -286,7 +310,7 @@ class GraphQueryService:
     
     def _format_results(self, records) -> List[str]:
         """
-        Format query results as readable text.
+        Format query results as readable text with entity IDs for CRM fact lookup.
         
         Args:
             records: Neo4j result records
@@ -301,13 +325,21 @@ class GraphQueryService:
             data = dict(record)
             entity_type = data.get("type", "Entity")
             name = data.get("name", "Unknown")
+            entity_id = data.get("entity_id")  # CRM source_id
             rel = data.get("relationship")
             related = data.get("related_to") or data.get("related_from")
             
+            # Include entity_id for CRM entities so the tool can fetch live facts
             if rel and related:
-                line = f"- {entity_type} '{name}' {rel} '{related}'"
+                if entity_id:
+                    line = f"- {entity_type} '{name}' (ID: {entity_id}) {rel} '{related}'"
+                else:
+                    line = f"- {entity_type} '{name}' {rel} '{related}'"
             else:
-                line = f"- {entity_type}: {name}"
+                if entity_id:
+                    line = f"- {entity_type}: {name} (ID: {entity_id})"
+                else:
+                    line = f"- {entity_type}: {name}"
             
             if line not in seen:
                 seen.add(line)
