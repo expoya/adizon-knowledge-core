@@ -8,6 +8,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from app.core.interfaces.crm import CRMProvider
+from app.integrations.zoho.books_client import ZohoBooksClient
+from app.integrations.zoho.books_processors import process_books_invoice, process_books_subscription
 from app.integrations.zoho.client import ZohoAPIError, ZohoClient
 from app.integrations.zoho.fetchers import fetch_via_coql, fetch_via_rest_api, fetch_users_via_api
 from app.integrations.zoho.processors import process_user_record, process_zoho_record
@@ -16,6 +18,7 @@ from app.integrations.zoho.schema import (
     SCHEMA_MAPPING,
     get_all_entity_types,
     get_schema_config,
+    is_books_api_module,
     is_rest_api_module,
     is_special_api_module,
 )
@@ -40,6 +43,7 @@ class ZohoCRMProvider(CRMProvider):
         client_secret: str,
         refresh_token: str,
         api_base_url: str = "https://www.zohoapis.eu",
+        books_organization_id: Optional[str] = None,
     ):
         """Initialize Zoho CRM provider."""
         self.client = ZohoClient(
@@ -49,7 +53,17 @@ class ZohoCRMProvider(CRMProvider):
             api_base_url=api_base_url,
         )
         
-        logger.info("ZohoCRMProvider initialized (refactored)")
+        # Initialize Books client if organization_id is provided
+        self.books_client = None
+        if books_organization_id:
+            self.books_client = ZohoBooksClient(
+                zoho_client=self.client,
+                organization_id=books_organization_id,
+                api_base_url=api_base_url
+            )
+            logger.info(f"ZohoCRMProvider initialized with Books support (org_id: {books_organization_id})")
+            else:
+            logger.info("ZohoCRMProvider initialized (CRM only, no Books)")
 
     def check_connection(self) -> bool:
         """
@@ -114,7 +128,7 @@ class ZohoCRMProvider(CRMProvider):
         
         Args:
             entity_types: List of entity types to fetch, or None for all
-            
+        
         Returns:
             List of processed records ready for graph ingestion
         """
@@ -130,18 +144,44 @@ class ZohoCRMProvider(CRMProvider):
             try:
                 # Get schema configuration
                 config = get_schema_config(entity_type)
-                module_name = config["module_name"]
-                label = config["label"]
+            module_name = config["module_name"]
+            label = config["label"]
                 fields = config["fields"].copy()
                 relations = config.get("relations", [])
-                
-                logger.info(f"  📋 Processing {entity_type} (module: {module_name}, label: {label})...")
-                
+            
+            logger.info(f"  📋 Processing {entity_type} (module: {module_name}, label: {label})...")
+            
                 # === SPECIAL CASE: Users via dedicated API ===
                 if is_special_api_module(entity_type):
                     users = await fetch_users_via_api(self.client)
-                    for user in users:
+                        for user in users:
                         results.append(process_user_record(user, label))
+                    continue
+                
+                # === SPECIAL CASE: Books API (Invoices, Subscriptions) ===
+                if is_books_api_module(entity_type):
+                    if not self.books_client:
+                        logger.warning(f"    ⚠️ Books module '{entity_type}' requested but ZOHO_BOOKS_ORGANIZATION_ID not configured")
+                        continue
+                        
+                    # Fetch from Books API
+                    if entity_type == "BooksInvoices":
+                        data = await self.books_client.fetch_all_invoices(max_pages=1)  # 🔥 SMOKE TEST
+                        for record in data:
+                            results.append(process_books_invoice(record, label))
+                    elif entity_type == "BooksSubscriptions":
+                        data = await self.books_client.fetch_all_subscriptions(max_pages=1)  # 🔥 SMOKE TEST
+                        for record in data:
+                            results.append(process_books_subscription(record, label))
+                    else:
+                        logger.warning(f"    ⚠️ Unknown Books module: {entity_type}")
+                        continue
+                
+                    if data:
+                        logger.info(f"    ✅ Processed {len(data)} {entity_type}")
+                    else:
+                        logger.warning(f"    ⚠️ No records found for {entity_type}")
+                    
                     continue
                 
                 # === FETCH DATA: REST API or COQL ===
@@ -186,8 +226,8 @@ class ZohoCRMProvider(CRMProvider):
                 
             except KeyError:
                 logger.warning(f"⚠️ Unknown entity type '{entity_type}'. Skipping.")
-                continue
-                
+                    continue
+                    
             except Exception as e:
                 logger.error(f"❌ Error processing {entity_type}: {e}", exc_info=True)
                 continue

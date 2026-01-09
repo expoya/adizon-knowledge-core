@@ -126,6 +126,26 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
         "use_rest_api": True  # Emails use REST API, not COQL
     },
     
+    # Zoho Books Modules (separate from CRM)
+    "BooksInvoices": {
+        "label": "Invoice",
+        "module_name": "BooksInvoices",  # Logical name
+        "fields": ["invoice_id", "invoice_number", "customer_name", "total", "status", "date"],
+        "relations": [
+            {"field": "customer_id", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
+        ],
+        "use_books_api": True  # Zoho Books API (/books/v3/invoices)
+    },
+    "BooksSubscriptions": {
+        "label": "Subscription",
+        "module_name": "BooksSubscriptions",  # Logical name
+        "fields": ["subscription_id", "subscription_number", "customer_name", "amount", "status", "start_date"],
+        "relations": [
+            {"field": "customer_id", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
+        ],
+        "use_books_api": True  # Zoho Books/Billing API
+    },
+    
     # Aliases for alternative naming (module names vs friendly names)
     "Zoho_Books": {  # Alias for Invoices (old name)
         "label": "Invoice",
@@ -195,11 +215,13 @@ def get_all_entity_types() -> list[str]:
         "Deals",
         "Tasks",
         "Notes",
-        "Events",        # calendlyforzohocrm__Calendly_Events
-        "Einwaende",     # Einw_nde
+        "Events",           # calendlyforzohocrm__Calendly_Events
+        "Einwaende",        # Einw_nde
         "Attachments",
-        "Invoices",      # CRM Invoices (not Books!)
-        "Emails",        # Uses v2 API (not v6!)
+        "Invoices",         # CRM Invoices (simple)
+        # "Emails",         # DISABLED: Related Lists only (requires complex implementation)
+        "BooksInvoices",    # Zoho Books Invoices (professional)
+        "BooksSubscriptions",  # Zoho Books/Billing Subscriptions
     ]
 
 
@@ -229,4 +251,18 @@ def is_special_api_module(entity_type: str) -> bool:
     """
     config = get_schema_config(entity_type)
     return config.get("use_api", False)
+
+
+def is_books_api_module(entity_type: str) -> bool:
+    """
+    Check if an entity type uses Zoho Books API.
+    
+    Args:
+        entity_type: Entity type name
+        
+    Returns:
+        True if module uses Books API, False otherwise
+    """
+    config = get_schema_config(entity_type)
+    return config.get("use_books_api", False)
 

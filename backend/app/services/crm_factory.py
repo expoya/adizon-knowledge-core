@@ -97,11 +97,17 @@ def _load_zoho_provider() -> CRMProvider:
     
     logger.info("✅ Initializing Zoho CRM provider")
     
+    # Optional: Zoho Books integration
+    books_org_id = getattr(settings, 'zoho_books_organization_id', None)
+    if books_org_id:
+        logger.info(f"✅ Zoho Books integration enabled (org_id: {books_org_id})")
+    
     provider = ZohoCRMProvider(
         client_id=settings.zoho_client_id,
         client_secret=settings.zoho_client_secret,
         refresh_token=settings.zoho_refresh_token,
         api_base_url=settings.zoho_api_base_url,
+        books_organization_id=books_org_id,
     )
     
     # Verify connection

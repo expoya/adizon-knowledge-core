@@ -223,6 +223,13 @@ class Settings(BaseSettings):
         alias="ZOHO_API_BASE_URL",
         description="Zoho API base URL (region-specific: .com, .eu, .in, etc.)",
     )
+    
+    # Zoho Books Configuration (optional)
+    zoho_books_organization_id: str | None = Field(
+        default=None,
+        alias="ZOHO_BOOKS_ORGANIZATION_ID",
+        description="Zoho Books Organization ID (required for Books API access)",
+    )
 
 
 @lru_cache
