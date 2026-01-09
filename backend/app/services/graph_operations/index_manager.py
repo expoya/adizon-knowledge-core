@@ -34,7 +34,7 @@ class GraphIndexManager:
         Indexes:
         1. CRMEntity.source_id - Critical for CRM relations
         2. User.source_id - For HAS_OWNER relations
-        3. source_document_id - For document graph
+        3. Document.source_document_id - For document graph
         """
         logger.info("🔧 Creating database indexes...")
         
@@ -56,10 +56,11 @@ class GraphIndexManager:
                     "source_id"
                 )
                 
-                # Index 3: source_document_id (for all nodes)
-                self._create_index_on_all_nodes(
+                # Index 3: Document.source_document_id
+                self._create_index(
                     session,
                     "doc_source_id",
+                    "Document",
                     "source_document_id"
                 )
                     
@@ -92,26 +93,4 @@ class GraphIndexManager:
         except Exception as e:
             logger.error(f"❌ Failed to create index {index_name}: {e}")
     
-    def _create_index_on_all_nodes(
-        self,
-        session: Any,
-        index_name: str,
-        property_name: str
-    ) -> None:
-        """
-        Create an index on a property for all nodes (no label).
-        
-        Args:
-            session: Neo4j session
-            index_name: Name of the index
-            property_name: Property to index
-        """
-        try:
-            result = session.run(
-                f"CREATE INDEX {index_name} IF NOT EXISTS FOR (n) ON (n.{property_name})"
-            )
-            result.consume()  # Force execution
-            logger.info(f"✅ Index created: {property_name} (all labels)")
-        except Exception as e:
-            logger.error(f"❌ Failed to create index {index_name}: {e}")
 

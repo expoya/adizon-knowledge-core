@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.interfaces.crm import CRMProvider
 from app.integrations.zoho.books_client import ZohoBooksClient
-from app.integrations.zoho.books_processors import process_books_invoice, process_books_subscription
+from app.integrations.zoho.books_processors import process_books_invoice
 from app.integrations.zoho.client import ZohoAPIError, ZohoClient
 from app.integrations.zoho.email_fetcher import fetch_all_emails_for_entities, process_email_record
 from app.integrations.zoho.fetchers import fetch_via_coql, fetch_via_rest_api, fetch_users_via_api
@@ -181,10 +181,6 @@ class ZohoCRMProvider(CRMProvider):
                         data = await self.books_client.fetch_all_invoices(max_pages=3)  # 3 pages × 200 = 600 max
                         for record in data:
                             results.append(process_books_invoice(record, label))
-                    elif entity_type == "BooksSubscriptions":
-                        data = await self.books_client.fetch_all_subscriptions(max_pages=3)  # 3 pages × 200 = 600 max
-                        for record in data:
-                            results.append(process_books_subscription(record, label))
                     else:
                         logger.warning(f"    ⚠️ Unknown Books module: {entity_type}")
                         continue

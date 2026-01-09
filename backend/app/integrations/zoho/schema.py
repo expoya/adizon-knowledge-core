@@ -136,15 +136,6 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
         ],
         "use_books_api": True  # Zoho Books API (/books/v3/invoices)
     },
-    "BooksSubscriptions": {
-        "label": "BooksSubscription",  # Unique label to avoid conflict
-        "module_name": "BooksSubscriptions",  # Logical name
-        "fields": ["subscription_id", "subscription_number", "customer_name", "amount", "status", "start_date"],
-        "relations": [
-            {"field": "customer_id", "edge": "HAS_SUBSCRIPTION", "target_label": "Account", "direction": "INCOMING"}
-        ],
-        "use_books_api": True  # Zoho Books/Billing API
-    },
     
     # Aliases for alternative naming (module names vs friendly names)
     "Zoho_Books": {  # Alias for Invoices (old name)
@@ -220,7 +211,6 @@ def get_all_entity_types() -> list[str]:
         "Attachments",
         "Invoices",            # CRM Invoices (simple)
         "BooksInvoices",       # Zoho Books Invoices (professional)
-        "BooksSubscriptions",  # Zoho Books/Billing Subscriptions
         # NOTE: Emails are fetched via Related Lists (after Accounts & Contacts)
     ]
 
