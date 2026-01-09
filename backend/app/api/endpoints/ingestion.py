@@ -471,12 +471,16 @@ async def sync_crm_entities(
                 # Sanitize label (alphanumeric only)
                 safe_label = ''.join(c for c in label if c.isalnum() or c == '_')
                 
-                # Build dynamic MERGE query with label
+                # Add CRMEntity as secondary label for polymorphic relations
+                # Exception: User nodes don't need CRMEntity label
+                labels_string = f"{safe_label}:CRMEntity" if safe_label != "User" else safe_label
+                
+                # Build dynamic MERGE query with label(s)
                 # Note: Labels can't be parameterized in Cypher, so we use string formatting
                 # This is safe because we sanitize the label above
                 cypher_query = f"""
                 UNWIND $batch as row
-                MERGE (n:{safe_label} {{source_id: row.source_id}})
+                MERGE (n:{labels_string} {{source_id: row.source_id}})
                 ON CREATE SET
                     n += row.properties,
                     n.created_at = datetime(),
