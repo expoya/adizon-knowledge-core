@@ -77,8 +77,8 @@ class RelationshipProcessor:
         
         for (edge_type, target_label, direction), batch_relations in relations_by_key.items():
             try:
-                logger.debug(
-                    f"Processing {edge_type} → {target_label} ({direction}) "
+                logger.info(
+                    f"  🔄 Processing {edge_type} → {target_label} ({direction}) "
                     f"with {len(batch_relations)} relations..."
                 )
                 result = await self._process_relationship_batch(
@@ -184,9 +184,10 @@ class RelationshipProcessor:
             chunk_num = (i // chunk_size) + 1
             total_chunks = (len(relations) + chunk_size - 1) // chunk_size
             
-            logger.debug(
-                f"    Processing chunk {chunk_num}/{total_chunks} "
-                f"({len(chunk)} relationships)"
+            # Always log for relationships (critical for debugging)
+            logger.info(
+                f"    🔄 {edge_type} chunk {chunk_num}/{total_chunks} "
+                f"({len(chunk)} relationships)..."
             )
             
             result = await self.graph_store.query(
@@ -197,7 +198,7 @@ class RelationshipProcessor:
             if result and len(result) > 0:
                 chunk_count = result[0].get("count", 0)
                 total_count += chunk_count
-                logger.debug(f"      ✅ Chunk {chunk_num}: {chunk_count} relationships created")
+                logger.info(f"      ✅ Chunk {chunk_num}: {chunk_count} relationships created")
             
             # Small delay between chunks to give Neo4j time for GC
             # Skip for last chunk
@@ -226,9 +227,11 @@ class RelationshipProcessor:
         if direction == "OUTGOING":
             # (source)-[edge]->(target)
             # NOTE: Using MATCH (not MERGE) for target to avoid orphan nodes
+            # CRITICAL: Use CRMEntity label for source to leverage index!
+            # All CRM nodes (including Users) have CRMEntity label
             return f"""
             UNWIND $batch as row
-            MATCH (a {{source_id: row.source_id}})
+            MATCH (a:CRMEntity {{source_id: row.source_id}})
             MATCH (b:{target_label} {{source_id: row.target_id}})
             MERGE (a)-[r:{edge_type}]->(b)
             ON CREATE SET r.created_at = datetime()
@@ -238,9 +241,10 @@ class RelationshipProcessor:
         elif direction == "INCOMING":
             # (target)-[edge]->(source)
             # NOTE: Using MATCH (not MERGE) for target to avoid orphan nodes
+            # CRITICAL: Use CRMEntity label for source to leverage index!
             return f"""
             UNWIND $batch as row
-            MATCH (a {{source_id: row.source_id}})
+            MATCH (a:CRMEntity {{source_id: row.source_id}})
             MATCH (b:{target_label} {{source_id: row.target_id}})
             MERGE (b)-[r:{edge_type}]->(a)
             ON CREATE SET r.created_at = datetime()

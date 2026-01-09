@@ -122,9 +122,10 @@ class NodeBatchProcessor:
         # Sanitize label (alphanumeric only)
         safe_label = ''.join(c for c in label if c.isalnum() or c == '_')
         
-        # Add CRMEntity as secondary label for polymorphic relations
-        # Exception: User nodes don't need CRMEntity label
-        labels_string = f"{safe_label}:CRMEntity" if safe_label != "User" else safe_label
+        # Add CRMEntity as secondary label for ALL CRM nodes
+        # This enables efficient relationship lookups using MATCH (n:CRMEntity {source_id: ...})
+        # Previously we excluded User, but Users ARE CRM entities too!
+        labels_string = f"{safe_label}:CRMEntity"
         
         # Build dynamic MERGE query with label(s)
         # Note: Labels can't be parameterized in Cypher, so we use string formatting
@@ -156,10 +157,12 @@ class NodeBatchProcessor:
             chunk_num = (i // chunk_size) + 1
             total_chunks = (len(entities) + chunk_size - 1) // chunk_size
             
-            logger.debug(
-                f"    Processing {label} chunk {chunk_num}/{total_chunks} "
-                f"({len(chunk)} nodes)"
-            )
+            # Only log for multi-chunk batches to reduce noise
+            if total_chunks > 1:
+                logger.info(
+                    f"    🔄 {label} chunk {chunk_num}/{total_chunks} "
+                    f"({len(chunk)} nodes)..."
+                )
             
             result = await self.graph_store.query(
                 cypher_query,
@@ -178,10 +181,12 @@ class NodeBatchProcessor:
                 total_created += chunk_created
                 total_updated += chunk_updated
                 
-                logger.debug(
-                    f"      ✅ Chunk {chunk_num}: {chunk_count} nodes "
-                    f"({chunk_created} created, {chunk_updated} updated)"
-                )
+                # Only log for multi-chunk batches
+                if total_chunks > 1:
+                    logger.info(
+                        f"      ✅ Chunk {chunk_num}: {chunk_count} nodes "
+                        f"({chunk_created} created, {chunk_updated} updated)"
+                    )
             
             # Small delay between chunks to give Neo4j time for GC
             # Skip for last chunk
