@@ -13,25 +13,36 @@ Updates funktionieren automatisch über Neo4j MERGE mit `ON MATCH SET`.
 
 ## Empfohlene Sync-Intervalle
 
-### Option 1: Häufige Updates (Empfohlen)
+### ⭐ AKTIV: 3x täglich zu festen Zeiten (Kostenoptimiert)
+```
+Intervall: 07:00, 10:00, 14:00 Uhr
+Begründung: Optimales Balance zwischen Aktualität und API-Kosten
+Cronjob: 0 7,10,14 * * *
+API Calls: ~180 Calls/Tag (statt 4800 bei 30min)
+Kosten-Reduktion: 96%!
+```
+
+**Vorteile:**
+- ✅ Daten vor Arbeitsbeginn aktuell (07:00)
+- ✅ Update während Hauptgeschäftszeit (10:00)
+- ✅ Nachmittags-Update für Tagesgeschäft (14:00)
+- ✅ Minimale API-Kosten
+- ✅ Ausreichend für meiste Use Cases
+
+### Alternative Optionen (nicht empfohlen)
+
+**Option 2: Häufige Updates**
 ```
 Intervall: Alle 30 Minuten
-Begründung: Schnelle Datenaktualität, ausreichend Pause zwischen Syncs
 Cronjob: */30 * * * *
+⚠️ API Calls: ~4800/Tag - HOHE KOSTEN!
 ```
 
-### Option 2: Business Hours
+**Option 3: Stündlich (Business Hours)**
 ```
 Intervall: Stündlich während Arbeitszeit (8-18 Uhr, Mo-Fr)
-Begründung: Spart Ressourcen, CRM-Daten ändern sich hauptsächlich tagsüber
 Cronjob: 0 8-18 * * 1-5
-```
-
-### Option 3: Konservativ
-```
-Intervall: Alle 2 Stunden
-Begründung: Balance zwischen Aktualität und Ressourcen
-Cronjob: 0 */2 * * *
+⚠️ API Calls: ~500/Monat - Moderate Kosten
 ```
 
 ## Railway Cronjob Einrichtung
@@ -194,11 +205,11 @@ params = {
 - COQL Module: Full Sync (bleiben wie jetzt)
 - Reduziert Sync-Zeit auf ~2-3 Minuten
 
-## Best Practice Empfehlung
+## Best Practice Empfehlung (AKTIV)
 
 **Für Production:**
 
-1. **Cronjob:** Alle 30 Minuten
+1. **Cronjob:** 3x täglich (07:00, 10:00, 14:00) ✅
 2. **Monitoring:** Railway Logs + Health Check
 3. **API Key:** Cronjob-Endpoint absichern
 4. **Alerts:** Bei Failure Notification (Email/Slack)
@@ -206,13 +217,13 @@ params = {
 **Implementierung:**
 
 ```bash
-# 1. In railway.toml hinzufügen:
-[[services.cron]]
-schedule = "*/30 * * * *"
-command = "curl -X POST -H 'X-API-Key: ${CRON_API_KEY}' https://adizon-knowledge-core.up.railway.app/api/v1/crm-sync"
+# 1. In railway.toml bereits konfiguriert:
+[[crons]]
+schedule = "0 7,10,14 * * *"  # 07:00, 10:00, 14:00 Uhr
+command = "curl -X POST -H 'X-API-Key: ${CRON_API_KEY}' https://${RAILWAY_PUBLIC_DOMAIN}/api/v1/crm-sync"
 
 # 2. Environment Variable setzen:
-railway env set CRON_API_KEY=<generate-secure-key>
+railway env set CRON_API_KEY=$(openssl rand -hex 32)
 
 # 3. Deploy:
 railway up
@@ -220,6 +231,17 @@ railway up
 # 4. Monitor:
 railway logs --follow
 ```
+
+### Kosten-Vergleich
+
+| Intervall | Syncs/Tag | API Calls/Tag | Relative Kosten |
+|-----------|-----------|---------------|-----------------|
+| 30 Min    | 48        | ~4.800        | 100% 💸💸💸 |
+| 1 Stunde  | 24        | ~2.400        | 50% 💸💸 |
+| 2 Stunden | 12        | ~1.200        | 25% 💸 |
+| **3x täglich** | **3** | **~180** | **4%** ✅ |
+
+**Ersparnis mit 3x täglich: 96% der API-Kosten!** 🎉
 
 ---
 
