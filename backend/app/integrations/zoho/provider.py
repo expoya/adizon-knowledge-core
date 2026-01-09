@@ -144,17 +144,17 @@ class ZohoCRMProvider(CRMProvider):
             try:
                 # Get schema configuration
                 config = get_schema_config(entity_type)
-            module_name = config["module_name"]
-            label = config["label"]
+                module_name = config["module_name"]
+                label = config["label"]
                 fields = config["fields"].copy()
                 relations = config.get("relations", [])
-            
-            logger.info(f"  📋 Processing {entity_type} (module: {module_name}, label: {label})...")
-            
+                
+                logger.info(f"  📋 Processing {entity_type} (module: {module_name}, label: {label})...")
+                
                 # === SPECIAL CASE: Users via dedicated API ===
                 if is_special_api_module(entity_type):
                     users = await fetch_users_via_api(self.client)
-                        for user in users:
+                    for user in users:
                         results.append(process_user_record(user, label))
                     continue
                 
@@ -163,7 +163,7 @@ class ZohoCRMProvider(CRMProvider):
                     if not self.books_client:
                         logger.warning(f"    ⚠️ Books module '{entity_type}' requested but ZOHO_BOOKS_ORGANIZATION_ID not configured")
                         continue
-                        
+                    
                     # Fetch from Books API
                     if entity_type == "BooksInvoices":
                         data = await self.books_client.fetch_all_invoices(max_pages=1)  # 🔥 SMOKE TEST
@@ -176,7 +176,7 @@ class ZohoCRMProvider(CRMProvider):
                     else:
                         logger.warning(f"    ⚠️ Unknown Books module: {entity_type}")
                         continue
-                
+                    
                     if data:
                         logger.info(f"    ✅ Processed {len(data)} {entity_type}")
                     else:
@@ -226,8 +226,8 @@ class ZohoCRMProvider(CRMProvider):
                 
             except KeyError:
                 logger.warning(f"⚠️ Unknown entity type '{entity_type}'. Skipping.")
-                    continue
-                    
+                continue
+                
             except Exception as e:
                 logger.error(f"❌ Error processing {entity_type}: {e}", exc_info=True)
                 continue
