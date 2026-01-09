@@ -83,8 +83,8 @@ async def fetch_via_coql(
             
         except ZohoAPIError as e:
             error_msg = str(e).lower()
-            # Check for Finance module errors
-            if module_name in ["Zoho_Books", "Subscriptions__s", "Einw_nde"] and ("not_supported" in error_msg or "400" in str(e)):
+            # Check for Finance module errors (COQL not supported)
+            if module_name in ["Zoho_Books", "Subscriptions__s"] and ("not_supported" in error_msg or "coql" in error_msg):
                 logger.warning(f"    ⚠️ COQL not supported for {module_name}")
                 break
             else:

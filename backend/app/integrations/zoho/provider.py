@@ -171,11 +171,11 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # Fetch from Books API
                     if entity_type == "BooksInvoices":
-                        data = await self.books_client.fetch_all_invoices(limit=200, max_pages=999)
+                        data = await self.books_client.fetch_all_invoices(max_pages=999)
                         for record in data:
                             results.append(process_books_invoice(record, label))
                     elif entity_type == "BooksSubscriptions":
-                        data = await self.books_client.fetch_all_subscriptions(limit=200, max_pages=999)
+                        data = await self.books_client.fetch_all_subscriptions(max_pages=999)
                         for record in data:
                             results.append(process_books_subscription(record, label))
                     else:
@@ -213,7 +213,7 @@ class ZohoCRMProvider(CRMProvider):
                         module_name,
                         fields,
                         where_clause=where_clause,
-                        limit=10000,  # Zoho COQL max: 10,000 records per query
+                        limit=2000,  # Zoho COQL max: 2,000 records per query
                         max_pages=999  # Fetch all pages with pagination (OFFSET-based)
                     )
                 
