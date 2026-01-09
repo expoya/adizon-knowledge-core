@@ -1,11 +1,11 @@
 sources:
   - id: "erp_postgres"
     type: "sql"
-    description: "Enthält strukturierte Geschäftsdaten. Wichtig für Umsatz, Kunden und Rechnungen."
+    description: "Externe ERP-Datenbank (optional). Nur verwenden wenn ERP_DATABASE_URL konfiguriert ist. NICHT für CRM-Daten oder Rechnungen - diese sind in Zoho CRM/Books verfügbar!"
     connection_env: "ERP_DATABASE_URL"
     tables:
-      - name: "invoices"
-        description: "Rechnungen mit Betrag (amount), Datum und Kunden-ID."
-      - name: "customers"
-        description: "Kundenstammdaten mit Namen und Regionen."
+      - name: "custom_data"
+        description: "Spezielle Geschäftsdaten außerhalb des CRM (falls vorhanden)."
+      - name: "legacy_systems"
+        description: "Daten aus Legacy-Systemen die nicht im CRM sind (falls vorhanden)."
 
