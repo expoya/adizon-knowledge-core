@@ -17,27 +17,27 @@ async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
     """
     Holt Live-Fakten über eine Entity aus dem CRM-System (Zoho CRM + Zoho Books).
     
-    ✅ VERWENDE DIESES TOOL FÜR:
-    - **Rechnungen** (Invoices): Beträge, Status, Fälligkeitsdaten
-    - **Offene Posten**: Unbezahlte Rechnungen, überfällige Zahlungen
-    - **Subscriptions**: Abonnements, wiederkehrende Umsätze
-    - **Deals**: Geschäfte, Pipeline, Umsatzprognosen
-    - **Einwände**: Sales Objections, Kundenbedenken
-    - **Meetings**: Calendly Events, Terminvereinbarungen
+    Ruft aktuelle Informationen zu einer Person oder Firma ab:
+    - Einwände (Objections)
+    - Calendly Events (Meetings)
+    - Deals (Geschäfte)
+    - Rechnungen (Invoices aus Zoho Books)
+    - Subscriptions (Abonnements)
+    - Offene Posten und Zahlungsstatus
     
-    Das Tool greift direkt auf Zoho CRM und Zoho Books zu und liefert
-    aktuelle Live-Daten, die nicht im Knowledge Graph sind.
+    WICHTIG: Nutze dieses Tool für ALLE finanziellen CRM-Daten!
+    Es gibt KEIN separates ERP-System - alle Rechnungen sind in Zoho Books.
     
     Args:
         entity_id: Die CRM Entity ID (z.B. "zoho_3652397000000649013")
         query_context: Kontext über welche Informationen gebraucht werden
-                      (z.B. "invoices and payments", "deals", "meetings")
+                      (z.B. "invoices and payment status", "subscriptions")
         
     Returns:
         Formatierter String mit aktuellen CRM-Daten oder Fehlermeldung
         
     Example:
-        >>> get_crm_facts("zoho_123456", "invoices and payments")
+        >>> get_crm_facts("zoho_123456", "invoices and payment status")
         '''
         # Live Facts for Entity: zoho_123456
         
@@ -45,8 +45,7 @@ async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
         - **Solar Installation**: €50,000.00 | Proposal | Close: 2026-02-01
         
         ### 🧾 Rechnungen (Zoho Books)
-        - **INV-001**: €15,000.00 | Paid | 2025-12-15
-        - **INV-002**: €8,500.00 | Overdue | Fällig: 2025-11-30
+        - **INV-001**: €12,500.00 | Bezahlt | 2025-12-15
         ...
         '''
     """

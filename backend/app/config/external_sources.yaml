@@ -1,11 +1,17 @@
-sources:
-  - id: "erp_postgres"
-    type: "sql"
-    description: "Externe ERP-Datenbank (optional). Nur verwenden wenn ERP_DATABASE_URL konfiguriert ist. NICHT für CRM-Daten oder Rechnungen - diese sind in Zoho CRM/Books verfügbar!"
-    connection_env: "ERP_DATABASE_URL"
-    tables:
-      - name: "custom_data"
-        description: "Spezielle Geschäftsdaten außerhalb des CRM (falls vorhanden)."
-      - name: "legacy_systems"
-        description: "Daten aus Legacy-Systemen die nicht im CRM sind (falls vorhanden)."
+# ERP/SQL Datenquellen sind DEAKTIVIERT
+# Alle Geschäftsdaten (inkl. Rechnungen) sind im CRM (Zoho Books) verfügbar!
+# 
+# HINWEIS: Rechnungen werden über Zoho Books API synchronisiert
+# und sind im Neo4j Knowledge Graph als BooksInvoices Nodes verfügbar.
+# Nutze das CRM Tool (get_crm_facts) oder Knowledge Tool (search_knowledge_base)
+# um auf Rechnungsdaten zuzugreifen.
+
+# sources:
+#   - id: "erp_postgres"
+#     type: "sql"
+#     description: "DEAKTIVIERT - Keine ERP-Datenbank vorhanden"
+#     connection_env: "ERP_DATABASE_URL"
+#     tables:
+#       - name: "invoices"
+#         description: "Rechnungen sind im CRM (Zoho Books) verfügbar"
 

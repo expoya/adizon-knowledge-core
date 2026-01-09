@@ -3,14 +3,15 @@ Du bist ein Intent Classifier für einen RAG Agenten.
 Analysiere die folgende Benutzeranfrage und klassifiziere sie:
 
 INTENT TYPES:
-- "sql": Frage nach Daten aus externen ERP-Systemen (nur wenn spezielle externe Datenquellen außerhalb des CRM genutzt werden)
-- "knowledge": Frage nach CRM-Daten (Kunden, Accounts, Leads, Deals, Kontakte, Einwände, Meetings, Rechnungen, Zahlungen, Subscriptions) ODER Frage nach Dokumenten, Konzepten, Erklärungen, Prozessen aus der Wissensdatenbank
+- "sql": Frage nach externen SQL-Daten (aktuell NICHT verfügbar/deaktiviert)
+- "knowledge": Frage nach CRM-Daten (Kunden, Accounts, Leads, Deals, Kontakte, Einwände, Meetings, Rechnungen, Subscriptions) ODER Frage nach Dokumenten, Konzepten, Erklärungen, Prozessen aus der Wissensdatenbank
 - "general": Allgemeine Konversation oder Small Talk
 
-WICHTIG:
+WICHTIG - ALLE GESCHÄFTSDATEN SIND IM CRM/KNOWLEDGE GRAPH:
 - Kunden, Accounts, Leads, Deals, Kontakte, Einwände → "knowledge" (CRM-Daten im Graph)
-- Rechnungen, Zahlungen, Subscriptions, Offene Posten → "knowledge" (Zoho Books im CRM-System!)
-- ERP-Daten nur wenn explizit externe Systeme abgefragt werden (selten!) → "sql"
+- Rechnungen, Zahlungen, Subscriptions, offene Posten → "knowledge" (Zoho Books im CRM)
+- Dokumente, Konzepte, Prozesse → "knowledge" (Vector Store)
+- SQL Intent ist DEAKTIVIERT - nutze IMMER "knowledge" für Geschäftsdaten!
 
 BENUTZERANFRAGE:
 {query}

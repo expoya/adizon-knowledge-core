@@ -19,18 +19,15 @@ logger = logging.getLogger(__name__)
 @tool
 def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
     """
-    Führt eine SQL Query auf einer externen Datenbank aus (falls konfiguriert).
-    
-    ⚠️ WICHTIG: Dieses Tool ist NICHT für CRM- oder Rechnungsdaten!
+    Führt eine SQL Query auf der ERP/Finance-Datenbank aus.
     
     VERWENDE DIESES TOOL NUR FÜR:
-    - Externe ERP-System-Daten (wenn ERP_DATABASE_URL konfiguriert ist)
-    - Spezielle Datenquellen außerhalb des CRM
+    - Finanzielle Daten: Rechnungen, Zahlungen, Buchhaltung
+    - ERP-System-Daten: Transaktionen, Finanztransaktionen
     
     VERWENDE NICHT FÜR:
-    - Rechnungen, Zahlungen, Subscriptions → Diese sind im CRM! (get_crm_facts Tool)
-    - Kunden, Accounts, Leads, Deals, Kontakte → Knowledge Graph (search_knowledge_base Tool)
-    - Einwände, Meetings, Calendly Events → CRM Live-Daten (get_crm_facts Tool)
+    - CRM-Daten (Kunden, Accounts, Leads, Deals, Kontakte, Einwände)
+    - Diese sind im Knowledge Graph verfügbar (search_knowledge_base Tool)
     
     WICHTIG: Verwende nur SELECT Queries! Keine INSERT, UPDATE, DELETE.
     Die Query sollte sicher und validiert sein.
@@ -113,16 +110,12 @@ def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
 @tool
 def get_sql_schema(source_id: str = "erp_postgres", table_names: List[str] = None) -> str:
     """
-    Holt detaillierte Schema-Informationen für externe Datenbanken (falls konfiguriert).
-    
-    ⚠️ WICHTIG: Dieses Tool ist NICHT für CRM- oder Rechnungsdaten!
+    Holt detaillierte Schema-Informationen für Tabellen der ERP/Finance-Datenbank.
     
     VERWENDE DIESES TOOL NUR FÜR:
-    - Externe ERP-System-Tabellen (wenn ERP_DATABASE_URL konfiguriert ist)
+    - ERP/Finance-Tabellen: Rechnungen, Zahlungen, Buchhaltung
     
-    NICHT FÜR:
-    - Rechnungen, Zahlungen → Im CRM verfügbar (get_crm_facts Tool)
-    - CRM-Daten → Im Knowledge Graph (search_knowledge_base Tool)
+    NICHT FÜR CRM-DATEN (diese sind im Neo4j Knowledge Graph).
     
     Liefert Spaltennamen, Datentypen und weitere Metadaten. Diese Informationen
     sind präziser als die Beschreibungen im Metadata Store und helfen dem LLM
