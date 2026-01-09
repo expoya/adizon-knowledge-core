@@ -229,14 +229,37 @@ class ZohoCRMProvider(CRMProvider):
                     contacts_data = data
                 
                 # === PROCESS RECORDS ===
+                # 🐛 DEBUG: Count records WITH and WITHOUT Account/Parent lookups
+                records_with_lookup = 0
+                records_without_lookup = 0
+                lookup_field = None
+                
+                # Identify the main lookup field for this entity type
+                if "Account_Name" in fields:
+                    lookup_field = "Account_Name"
+                elif "Parent_Id" in fields:
+                    lookup_field = "Parent_Id"
+                elif "What_Id" in fields:
+                    lookup_field = "What_Id"
+                
                 for i, record in enumerate(data):
-                    # 🐛 DEBUG: Log first record to see what Zoho returns
-                    if i == 0:
-                        logger.warning(f"    🐛 DEBUG {entity_type}: Raw record = {record}")
-                        logger.warning(f"    🐛 DEBUG {entity_type}: Requested fields = {fields}")
+                    # 🐛 DEBUG: Log first 3 records to see variety
+                    if i < 3:
+                        logger.warning(f"    🐛 DEBUG {entity_type} #{i+1}: {record}")
+                    
+                    # Count lookup presence
+                    if lookup_field:
+                        if record.get(lookup_field):
+                            records_with_lookup += 1
+                        else:
+                            records_without_lookup += 1
                     
                     processed = process_zoho_record(record, label, fields, relations)
                     results.append(processed)
+                
+                # 🐛 DEBUG: Log lookup statistics
+                if lookup_field:
+                    logger.warning(f"    🐛 DEBUG {entity_type}: {lookup_field} present in {records_with_lookup}/{len(data)} records (missing: {records_without_lookup})")
                 
                 logger.info(f"    ✅ Processed {len(data)} {entity_type}")
                 
