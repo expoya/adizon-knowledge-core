@@ -464,16 +464,81 @@ class ZohoCRMProvider(CRMProvider):
                 # Build SELECT query with all fields
                 fields_to_select = config["fields"].copy()
                 
-                # Build query
-                query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE id is not null LIMIT 200"
-                logger.debug(f"    Query: {query}")
+                # === SMOKE TEST: Limited fetch for validation ===
+                # TODO: After successful smoke test, change limit to 10000 and enable pagination
+                all_data = []
+                offset = 0
+                limit = 50  # 🔥 SMOKE TEST: Limited to 50 records per entity
+                page = 1
+                max_pages = 1  # 🔥 SMOKE TEST: Only fetch first page
                 
-                # Execute query
-                data = await self.execute_raw_query(query)
+                # Special filter for Leads: Only import leads created after 2024-04-01
+                where_clause = "id is not null"
+                if module_name == "Leads":
+                    where_clause = "id is not null AND Created_Time > '2024-04-01T00:00:00+00:00'"
+                    logger.info(f"    📅 Applying Leads filter: Created_Time > 2024-04-01")
                 
-                # Check for Finance modules
-                if not data and module_name in ["Zoho_Books", "Subscriptions__s"]:
-                    logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported for Finance modules")
+                logger.info(f"    🔥 SMOKE TEST MODE: LIMIT {limit}, max {max_pages} page(s)")
+                
+                while True:
+                    # Build paginated query
+                    query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
+                    logger.debug(f"    Query (Page {page}): {query}")
+                    
+                    try:
+                        # Execute query
+                        data = await self.execute_raw_query(query)
+                        
+                        if not data:
+                            logger.debug(f"    📄 Page {page}: No more records")
+                            break  # No more records
+                        
+                        all_data.extend(data)
+                        logger.info(f"    📄 Page {page}: Fetched {len(data)} records (Total: {len(all_data)})")
+                        
+                        # 🔥 SMOKE TEST: Stop after max_pages
+                        if page >= max_pages:
+                            logger.info(f"    🔥 SMOKE TEST: Stopping after {max_pages} page(s)")
+                            break
+                        
+                        # Check if we got less than limit (last page)
+                        if len(data) < limit:
+                            logger.info(f"    ✅ Last page reached ({len(data)} < {limit})")
+                            break
+                        
+                        # Increment for next page
+                        offset += limit
+                        page += 1
+                        
+                        # Rate Limit Protection: Sleep 0.6s between calls
+                        # Zoho allows 100 calls/min = 1 call every 0.6s
+                        await asyncio.sleep(0.6)
+                        
+                    except ZohoAPIError as e:
+                        error_msg = str(e).lower()
+                        # Check for Finance module errors
+                        if module_name in ["Zoho_Books", "Subscriptions__s", "Einw_nde"] and ("not_supported" in error_msg or "400" in str(e)):
+                            logger.warning(f"    ⚠️ COQL not supported for {module_name}")
+                            break
+                        else:
+                            logger.error(f"    ❌ API error on page {page}: {e}")
+                            # Continue with what we have (error recovery)
+                            break
+                    
+                    except Exception as e:
+                        logger.error(f"    ❌ Unexpected error on page {page}: {e}", exc_info=True)
+                        # Continue with what we have (error recovery)
+                        break
+                
+                # Use accumulated data
+                data = all_data
+                
+                # Final check: If no data fetched
+                if not data:
+                    if module_name in ["Zoho_Books", "Subscriptions__s"]:
+                        logger.warning(f"    ⚠️ Skipping {entity_type}: COQL not supported for Finance modules")
+                    else:
+                        logger.info(f"    ℹ️ No records found for {entity_type}")
                     continue
                 
                 # Process records
@@ -624,16 +689,22 @@ class ZohoCRMProvider(CRMProvider):
         
         # === A) Einwände (Objections) ===
         try:
-            query = f"SELECT Name, Grund, Status FROM Einw_nde WHERE Lead.id = '{zoho_id}' LIMIT 50"
+            # Fixed: Removed "Status" field (doesn't exist), kept core fields
+            query = f"SELECT Name, Einwand_Kategorie, Einwandbeschreibung FROM Einw_nde WHERE Lead.id = '{zoho_id}' LIMIT 50"
             einwaende = await self.execute_raw_query(query)
             
             if einwaende:
                 section = ["### 🛡️ Einwände\n"]
                 for obj in einwaende:
                     name = obj.get("Name", "N/A")
-                    grund = obj.get("Grund", "N/A")
-                    status = obj.get("Status", "N/A")
-                    section.append(f"- **{name}**: {grund} (Status: {status})")
+                    kategorie = obj.get("Einwand_Kategorie", "N/A")
+                    beschreibung = obj.get("Einwandbeschreibung", "")
+                    
+                    # Format output with category and description
+                    if beschreibung:
+                        section.append(f"- **{name}** ({kategorie}): {beschreibung}")
+                    else:
+                        section.append(f"- **{name}** ({kategorie})")
                 sections.append("\n".join(section))
                 
         except Exception as e:
@@ -642,21 +713,27 @@ class ZohoCRMProvider(CRMProvider):
         
         # === B) Calendly Events ===
         try:
+            # Fixed: Use correct field name "calendlyforzohocrm__Start_Time" and removed "Status"
             # Try Lead relation first
-            query = f"SELECT Name, Event_Start_Time, Status FROM calendlyforzohocrm__Calendly_Events WHERE Lead.id = '{zoho_id}' LIMIT 20"
+            query = f"SELECT Name, calendlyforzohocrm__Start_Time, calendlyforzohocrm__Status FROM calendlyforzohocrm__Calendly_Events WHERE calendlyforzohocrm__Lead.id = '{zoho_id}' LIMIT 20"
             calendly = await self.execute_raw_query(query)
+            
+            # Fallback: Try Contact relation
+            if not calendly:
+                query = f"SELECT Name, calendlyforzohocrm__Start_Time, calendlyforzohocrm__Status FROM calendlyforzohocrm__Calendly_Events WHERE calendlyforzohocrm__Contact.id = '{zoho_id}' LIMIT 20"
+                calendly = await self.execute_raw_query(query)
             
             # Fallback: Try Account relation
             if not calendly:
-                query = f"SELECT Name, Event_Start_Time, Status FROM calendlyforzohocrm__Calendly_Events WHERE Account.id = '{zoho_id}' LIMIT 20"
+                query = f"SELECT Name, calendlyforzohocrm__Start_Time, calendlyforzohocrm__Status FROM calendlyforzohocrm__Calendly_Events WHERE Verkn_pfter_Account.id = '{zoho_id}' LIMIT 20"
                 calendly = await self.execute_raw_query(query)
             
             if calendly:
                 section = ["### 📅 Calendly Events\n"]
                 for event in calendly:
                     name = event.get("Name", "N/A")
-                    start_time = event.get("Event_Start_Time", "N/A")
-                    status = event.get("Status", "N/A")
+                    start_time = event.get("calendlyforzohocrm__Start_Time", "N/A")
+                    status = event.get("calendlyforzohocrm__Status", "N/A")
                     section.append(f"- **{name}**: {start_time} (Status: {status})")
                 sections.append("\n".join(section))
                 
@@ -666,8 +743,9 @@ class ZohoCRMProvider(CRMProvider):
         
         # === C) Deals ===
         try:
-            # Try Lead relation first
-            query = f"SELECT Deal_Name, Amount, Stage, Closing_Date FROM Deals WHERE Leads.id = '{zoho_id}' LIMIT 50"
+            # Fixed: Changed "Leads.id" to "Lead_Source.id" or try without lookup
+            # First try: Contact relation (most common for converted leads)
+            query = f"SELECT Deal_Name, Amount, Stage, Closing_Date FROM Deals WHERE Contact_Name.id = '{zoho_id}' LIMIT 50"
             deals = await self.execute_raw_query(query)
             
             # Fallback: Try Account relation
@@ -697,29 +775,16 @@ class ZohoCRMProvider(CRMProvider):
             sections.append("### 💰 Deals\n*(Query failed)*")
         
         # === D) Finance / Subscriptions ===
-        try:
-            query = f"SELECT Name, Total, Status FROM Subscriptions__s WHERE Account.id = '{zoho_id}' LIMIT 20"
-            finance = await self.execute_raw_query(query)
-            
-            if finance:
-                section = ["### 🧾 Finance (Subscriptions)\n"]
-                for sub in finance:
-                    name = sub.get("Name", "N/A")
-                    total = sub.get("Total", 0)
-                    status = sub.get("Status", "N/A")
-                    section.append(f"- **{name}**: €{total} (Status: {status})")
-                sections.append("\n".join(section))
-                
-        except Exception as e:
-            logger.warning(f"⚠️ Finance query failed: {e}")
-            sections.append("### 🧾 Finance\n*(Query failed)*")
+        # Skip Finance modules - COQL not supported for Subscriptions__s
+        # These would need to use REST API instead
+        logger.debug("⚠️ Skipping Finance/Subscriptions - COQL not supported for finance modules")
         
         # === Build final response ===
         if not sections:
             return f"""
 # Live Facts for Entity: {entity_id}
 
-No data found across all modules.
+No data found across all modules (Einwände, Calendly Events, Deals).
 
 Query Context: {query_context}
 """
@@ -733,6 +798,7 @@ Query Context: _{query_context}_
 
 ---
 *Data source: Zoho CRM*
+*Note: Some queries may have failed due to missing fields or permissions.*
 """
         
         logger.info(f"✅ Live facts compiled: {len(sections)} sections")
