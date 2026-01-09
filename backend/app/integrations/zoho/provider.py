@@ -11,6 +11,7 @@ from app.core.interfaces.crm import CRMProvider
 from app.integrations.zoho.books_client import ZohoBooksClient
 from app.integrations.zoho.books_processors import process_books_invoice, process_books_subscription
 from app.integrations.zoho.client import ZohoAPIError, ZohoClient
+from app.integrations.zoho.email_fetcher import fetch_all_emails_for_entities, process_email_record
 from app.integrations.zoho.fetchers import fetch_via_coql, fetch_via_rest_api, fetch_users_via_api
 from app.integrations.zoho.processors import process_user_record, process_zoho_record
 from app.integrations.zoho.queries import search_live_facts as execute_live_facts_query
@@ -140,6 +141,10 @@ class ZohoCRMProvider(CRMProvider):
         
         results = []
         
+        # Collect Accounts and Contacts for later Email fetching
+        accounts_data = []
+        contacts_data = []
+        
         for entity_type in entity_types:
             try:
                 # Get schema configuration
@@ -217,6 +222,12 @@ class ZohoCRMProvider(CRMProvider):
                     logger.warning(f"    ⚠️ No records found for {entity_type} (module: {module_name})")
                     continue
                 
+                # === COLLECT ACCOUNTS & CONTACTS FOR EMAIL FETCHING ===
+                if module_name == "Accounts":
+                    accounts_data = data
+                elif module_name == "Contacts":
+                    contacts_data = data
+                
                 # === PROCESS RECORDS ===
                 for record in data:
                     processed = process_zoho_record(record, label, fields, relations)
@@ -231,6 +242,28 @@ class ZohoCRMProvider(CRMProvider):
             except Exception as e:
                 logger.error(f"❌ Error processing {entity_type}: {e}", exc_info=True)
                 continue
+        
+        # === FETCH EMAILS AS RELATED LISTS ===
+        if accounts_data or contacts_data:
+            logger.info(f"📧 Fetching Emails for Accounts & Contacts (Related Lists)...")
+            
+            try:
+                emails = await fetch_all_emails_for_entities(
+                    self.client,
+                    accounts=accounts_data,
+                    contacts=contacts_data,
+                    limit_per_entity=50  # 🔥 SMOKE TEST: 50 emails per entity
+                )
+                
+                # Process emails
+                for email in emails:
+                    processed = process_email_record(email, label="Email")
+                    results.append(processed)
+                
+                logger.info(f"  ✅ Processed {len(emails)} Emails from Related Lists")
+                
+            except Exception as e:
+                logger.error(f"  ❌ Error fetching emails: {e}", exc_info=True)
         
         logger.info(f"✅ Total skeleton data fetched: {len(results)} records")
         

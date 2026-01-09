@@ -215,13 +215,13 @@ def get_all_entity_types() -> list[str]:
         "Deals",
         "Tasks",
         "Notes",
-        "Events",           # calendlyforzohocrm__Calendly_Events
-        "Einwaende",        # Einw_nde
+        "Events",              # calendlyforzohocrm__Calendly_Events
+        "Einwaende",           # Einw_nde
         "Attachments",
-        "Invoices",         # CRM Invoices (simple)
-        # "Emails",         # DISABLED: Related Lists only (requires complex implementation)
-        "BooksInvoices",    # Zoho Books Invoices (professional)
+        "Invoices",            # CRM Invoices (simple)
+        "BooksInvoices",       # Zoho Books Invoices (professional)
         "BooksSubscriptions",  # Zoho Books/Billing Subscriptions
+        # NOTE: Emails are fetched via Related Lists (after Accounts & Contacts)
     ]
 
 
