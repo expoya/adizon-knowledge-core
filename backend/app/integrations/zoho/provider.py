@@ -244,26 +244,28 @@ class ZohoCRMProvider(CRMProvider):
                 continue
         
         # === FETCH EMAILS AS RELATED LISTS ===
-        if accounts_data or contacts_data:
-            logger.info(f"📧 Fetching Emails for Accounts & Contacts (Related Lists)...")
-            
-            try:
-                emails = await fetch_all_emails_for_entities(
-                    self.client,
-                    accounts=accounts_data,
-                    contacts=contacts_data,
-                    limit_per_entity=50  # 50 emails per Account/Contact (validation phase)
-                )
-                
-                # Process emails
-                for email in emails:
-                    processed = process_email_record(email, label="Email")
-                    results.append(processed)
-                
-                logger.info(f"  ✅ Processed {len(emails)} Emails from Related Lists")
-                
-            except Exception as e:
-                logger.error(f"  ❌ Error fetching emails: {e}", exc_info=True)
+        # ⚠️ TEMPORARILY DISABLED: Email fetching takes too long (10+ min for 1000 entities)
+        # TODO: Re-enable with incremental sync or background job
+        # if accounts_data or contacts_data:
+        #     logger.info(f"📧 Fetching Emails for Accounts & Contacts (Related Lists)...")
+        #     
+        #     try:
+        #         emails = await fetch_all_emails_for_entities(
+        #             self.client,
+        #             accounts=accounts_data,
+        #             contacts=contacts_data,
+        #             limit_per_entity=50
+        #         )
+        #         
+        #         for email in emails:
+        #             processed = process_email_record(email, label="Email")
+        #             results.append(processed)
+        #         
+        #         logger.info(f"  ✅ Processed {len(emails)} Emails from Related Lists")
+        #     except Exception as e:
+        #         logger.error(f"  ❌ Error fetching emails: {e}", exc_info=True)
+        
+        logger.info(f"⏭️  Skipping Email fetching (disabled for validation phase)")
         
         logger.info(f"✅ Total skeleton data fetched: {len(results)} records")
         
