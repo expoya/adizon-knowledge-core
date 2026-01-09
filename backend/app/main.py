@@ -28,9 +28,9 @@ def setup_logging():
     CRITICAL: Railway only shows stdout, not stderr!
     Python logging defaults to stderr, so we must explicitly configure it.
     """
-    # Determine log level from environment
-    log_level_str = settings.log_level.upper()
-    log_level = getattr(logging, log_level_str, logging.INFO)
+    # Determine log level from app_debug flag
+    # DEBUG mode if app_debug=True, otherwise INFO
+    log_level = logging.DEBUG if settings.app_debug else logging.INFO
     
     # Configure root logger
     root_logger = logging.getLogger()
