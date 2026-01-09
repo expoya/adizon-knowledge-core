@@ -609,8 +609,9 @@ class ZohoCRMProvider(CRMProvider):
                             if lookup_name:
                                 properties[f"{field.lower()}_name"] = str(lookup_name)
                             else:
-                                # Log warning if we have ID but no name
-                                logger.warning(f"⚠️ Lookup field '{field}' has ID but no name. Available keys: {list(value.keys())}, Values sample: {str(value)[:100]}")
+                                # ZOHO COQL LIMITATION: Lookup fields only contain ID
+                                # This is expected behavior - name will be resolved via graph relationship
+                                logger.debug(f"Lookup field '{field}' only has ID (COQL limitation). Will resolve via relationship. ID: {lookup_id}")
                         elif value:
                             # Scalar field: store directly
                             properties[field.lower()] = value
@@ -657,8 +658,9 @@ class ZohoCRMProvider(CRMProvider):
                             if target_name:
                                 properties[f"{field_name.lower()}_name"] = str(target_name)
                             else:
-                                # Log warning if we have ID but no name
-                                logger.warning(f"⚠️ Relation field '{field_name}' has ID but no name. Available keys: {list(field_value.keys())}, Values sample: {str(field_value)[:100]}")
+                                # ZOHO COQL LIMITATION: Lookup fields only contain ID
+                                # This is expected behavior - name will be resolved via graph relationship
+                                logger.debug(f"Relation field '{field_name}' only has ID (COQL limitation). Relationship will be created. ID: {target_id}")
                         elif isinstance(field_value, str):
                             target_id = field_value
                         
