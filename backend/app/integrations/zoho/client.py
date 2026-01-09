@@ -166,7 +166,18 @@ class ZohoClient:
                 logger.error(error_msg)
                 raise ZohoAPIError(error_msg)
             
-            return response.json()
+            # Parse JSON response
+            try:
+                # Check if response has content
+                if not response.text or response.text.strip() == "":
+                    logger.warning(f"Empty response from Zoho API: {method} {url}")
+                    return {}  # Return empty dict for empty responses
+                
+                return response.json()
+            except ValueError as e:
+                # JSON parsing failed
+                logger.error(f"Failed to parse JSON response: {response.text[:200]}")
+                raise ZohoAPIError(f"Invalid JSON response from Zoho API: {e}")
             
         except httpx.RequestError as e:
             raise ZohoAPIError(f"Network error: {e}")

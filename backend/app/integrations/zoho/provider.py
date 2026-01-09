@@ -208,19 +208,21 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # === INCREMENTAL SYNC: Add Modified_Time filter ===
                     if last_sync_time:
-                        # CRITICAL: Zoho COQL does NOT accept milliseconds in datetime!
-                        # Format must be: YYYY-MM-DDTHH:MM:SS+00:00 (NO fractional seconds)
-                        # Remove milliseconds/microseconds from timestamp
+                        # CRITICAL: Zoho COQL datetime format requirements:
+                        # 1. NO milliseconds (must be: YYYY-MM-DDTHH:MM:SS)
+                        # 2. NO timezone suffix (Zoho stores datetime in account timezone)
+                        # 3. Format: 'YYYY-MM-DDTHH:MM:SS' (e.g., '2026-01-09T20:06:36')
+                        
+                        # Remove milliseconds and timezone from timestamp
                         if '.' in last_sync_time:
-                            # Split at decimal point and reconstruct with timezone
-                            date_time_part = last_sync_time.split('.')[0]  # Everything before '.'
-                            # Find timezone part (after milliseconds)
-                            tz_part = '+00:00'  # Default
-                            if '+' in last_sync_time:
-                                tz_part = '+' + last_sync_time.split('+')[-1]
-                            elif last_sync_time.endswith('Z'):
-                                tz_part = '+00:00'  # Convert Z to +00:00
-                            zoho_timestamp = f"{date_time_part}{tz_part}"
+                            # Split at decimal point: "2026-01-09T20:06:36.047+00:00" -> "2026-01-09T20:06:36"
+                            zoho_timestamp = last_sync_time.split('.')[0]
+                        elif '+' in last_sync_time:
+                            # Split at +: "2026-01-09T20:06:36+00:00" -> "2026-01-09T20:06:36"
+                            zoho_timestamp = last_sync_time.split('+')[0]
+                        elif 'Z' in last_sync_time:
+                            # Remove Z: "2026-01-09T20:06:36Z" -> "2026-01-09T20:06:36"
+                            zoho_timestamp = last_sync_time.replace('Z', '')
                         else:
                             zoho_timestamp = last_sync_time
                         
@@ -230,8 +232,9 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # Special filter for Leads: Only import Leads created after 2024-04-01
                     # CRITICAL: Use uppercase AND for COQL syntax!
+                    # CRITICAL: Datetime WITHOUT timezone (Zoho COQL format)
                     if module_name == "Leads":
-                        where_clause += " AND Created_Time > '2024-04-01T00:00:00+00:00'"
+                        where_clause += " AND Created_Time > '2024-04-01T00:00:00'"
                         logger.info(f"    📅 Leads date filter: Created_Time > 2024-04-01")
                     
                     data = await fetch_via_coql(
