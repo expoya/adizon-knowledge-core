@@ -17,7 +17,7 @@ from app.services.graph_store import get_graph_store_service
 from app.tools.knowledge import search_knowledge_base
 from app.tools.sql import execute_sql_query, get_sql_schema
 from app.tools.crm import get_crm_facts
-from prompts import get_prompt
+from app.prompts import get_prompt
 
 logger = logging.getLogger(__name__)
 
