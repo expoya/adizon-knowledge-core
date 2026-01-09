@@ -150,14 +150,20 @@ def extract_properties_from_record(
 
 def extract_relations_from_record(
     record: Dict[str, Any],
-    relation_configs: List[Dict[str, Any]]
+    relation_configs: List[Dict[str, Any]],
+    extracted_properties: Dict[str, Any] = None
 ) -> List[Dict[str, Any]]:
     """
     Extracts relationships from a Zoho record.
     
+    IMPORTANT: When REST API doesn't return lookup fields, we fall back to
+    checking extracted_properties for {field}_id values. This handles cases
+    where REST API omits lookup fields but we extracted the ID during property processing.
+    
     Args:
         record: Raw Zoho record
         relation_configs: List of relation configurations from schema
+        extracted_properties: Already extracted properties (contains {field}_id values)
         
     Returns:
         List of relation dicts
@@ -168,41 +174,45 @@ def extract_relations_from_record(
         field_name = rel_config["field"]
         field_value = record.get(field_name)
         
-        if not field_value:
-            continue
-        
-        # Extract ID from lookup field (dict with "id" key)
         target_id = None
         target_name = None
         
-        if isinstance(field_value, dict):
-            target_id = field_value.get("id")
-            
-            # Robust name extraction with multiple fallbacks
-            target_name = (
-                field_value.get("name") or 
-                field_value.get("full_name") or 
-                field_value.get("Full_Name") or
-                field_value.get("first_name") or
-                field_value.get("last_name") or
-                field_value.get("email") or
-                field_value.get("Email") or
-                field_value.get("Account_Name") or
-                field_value.get("Deal_Name") or
-                field_value.get("Subject")
-            )
-            
-            # For Owner fields: Try combining first + last name
-            if not target_name and "Owner" in field_name:
-                first_name = field_value.get("first_name", "")
-                last_name = field_value.get("last_name", "")
-                if first_name or last_name:
-                    target_name = f"{first_name} {last_name}".strip()
-            
-            # Note: We don't log here since we already logged in properties extraction
-            
-        elif isinstance(field_value, str):
-            target_id = field_value
+        # Try 1: Extract from raw field value (if present)
+        if field_value:
+            if isinstance(field_value, dict):
+                target_id = field_value.get("id")
+                
+                # Robust name extraction with multiple fallbacks
+                target_name = (
+                    field_value.get("name") or 
+                    field_value.get("full_name") or 
+                    field_value.get("Full_Name") or
+                    field_value.get("first_name") or
+                    field_value.get("last_name") or
+                    field_value.get("email") or
+                    field_value.get("Email") or
+                    field_value.get("Account_Name") or
+                    field_value.get("Deal_Name") or
+                    field_value.get("Subject")
+                )
+                
+                # For Owner fields: Try combining first + last name
+                if not target_name and "Owner" in field_name:
+                    first_name = field_value.get("first_name", "")
+                    last_name = field_value.get("last_name", "")
+                    if first_name or last_name:
+                        target_name = f"{first_name} {last_name}".strip()
+                
+            elif isinstance(field_value, str):
+                target_id = field_value
+        
+        # Try 2: Fallback to extracted properties (for REST API missing fields)
+        if not target_id and extracted_properties:
+            # Check for {field}_id in properties (lowercase)
+            field_id_key = f"{field_name.lower()}_id"
+            if field_id_key in extracted_properties:
+                target_id = extracted_properties[field_id_key]
+                logger.debug(f"Using fallback {field_id_key} = {target_id} for relationship")
         
         if target_id:
             relations.append({
@@ -233,11 +243,17 @@ def process_zoho_record(
     Returns:
         Processed record dict with source_id, label, properties, relations
     """
+    # Extract properties first
+    properties = extract_properties_from_record(record, fields, label)
+    
+    # Extract relations (with fallback to properties for missing REST API fields)
+    relations = extract_relations_from_record(record, relation_configs, properties)
+    
     return {
         "source_id": f"zoho_{record.get('id')}",
         "label": label,
-        "properties": extract_properties_from_record(record, fields, label),
-        "relations": extract_relations_from_record(record, relation_configs)
+        "properties": properties,
+        "relations": relations
     }
 
 
