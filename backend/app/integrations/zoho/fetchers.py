@@ -87,6 +87,10 @@ async def fetch_via_coql(
             query = f"SELECT {', '.join(fields)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
             logger.debug(f"    Query (Page {page}): {query}")
             
+            # Log first query at INFO level for debugging
+            if page == 1:
+                logger.info(f"    🔍 COQL Query: {query[:200]}...")
+            
             # Execute query via COQL endpoint
             response = await client.post(
                 "/crm/v6/coql",
