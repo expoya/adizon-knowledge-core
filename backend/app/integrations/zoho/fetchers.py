@@ -6,11 +6,50 @@ Handles both COQL and REST API fetching with pagination and error recovery.
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Dict, List
 
 from app.integrations.zoho.client import ZohoAPIError, ZohoClient
 
 logger = logging.getLogger(__name__)
+
+
+def _filter_notes(notes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Filter out unwanted Notes:
+    1. note_title = "Terminbuchung" or "Kontaktversuch"
+    2. Created before 2024-04-01
+    
+    Args:
+        notes: List of Note records
+        
+    Returns:
+        Filtered list of Notes
+    """
+    cutoff_date = datetime(2024, 4, 1)
+    filtered = []
+    
+    for note in notes:
+        # Filter by title
+        note_title = note.get("Note_Title", "")
+        if note_title in ["Terminbuchung", "Kontaktversuch"]:
+            continue
+        
+        # Filter by date (Created_Time format: "2024-01-15T10:30:00+01:00")
+        created_time_str = note.get("Created_Time")
+        if created_time_str:
+            try:
+                # Parse ISO format
+                created_time = datetime.fromisoformat(created_time_str.replace("Z", "+00:00"))
+                if created_time < cutoff_date:
+                    continue
+            except (ValueError, AttributeError):
+                # If parsing fails, keep the note (better safe than sorry)
+                logger.debug(f"Could not parse Created_Time for note {note.get('id')}: {created_time_str}")
+        
+        filtered.append(note)
+    
+    return filtered
 
 
 async def fetch_via_coql(
@@ -115,6 +154,9 @@ async def fetch_via_rest_api(
     - Beyond 2000: Must use 'page_token' from response
     - Response contains: info.more_records + info.next_page_token
     
+    Special Filtering:
+    - Notes: Filters out "Terminbuchung", "Kontaktversuch", and notes before 2024-04-01
+    
     Args:
         client: ZohoClient instance
         module_name: Zoho module name (e.g., "Deals", "Tasks", "Notes")
@@ -123,7 +165,7 @@ async def fetch_via_rest_api(
         max_pages: Maximum pages to fetch (0 = unlimited)
         
     Returns:
-        List of records
+        List of records (filtered if module_name == "Notes")
     """
     logger.info(f"    🔄 Fetching via REST API: {module_name}")
     
@@ -131,6 +173,7 @@ async def fetch_via_rest_api(
     page_num = 1
     rest_limit = min(limit, 200)  # REST API max 200 per page
     page_token = None
+    filtered_count = 0  # Track how many Notes were filtered out
     
     while True:
         try:
@@ -169,8 +212,18 @@ async def fetch_via_rest_api(
                     logger.debug(f"    📄 Page {page_num}: No more records")
                 break
             
-            all_data.extend(data_page)
-            logger.info(f"    📄 Page {page_num}: Fetched {len(data_page)} records (Total: {len(all_data)})")
+            # Apply Notes filtering if needed
+            if module_name == "Notes":
+                filtered_page = _filter_notes(data_page)
+                filtered_count += len(data_page) - len(filtered_page)
+                all_data.extend(filtered_page)
+                logger.info(
+                    f"    📄 Page {page_num}: Fetched {len(data_page)} records, "
+                    f"kept {len(filtered_page)} after filtering (Total: {len(all_data)})"
+                )
+            else:
+                all_data.extend(data_page)
+                logger.info(f"    📄 Page {page_num}: Fetched {len(data_page)} records (Total: {len(all_data)})")
             
             # Check if max_pages limit reached (0 = unlimited)
             if max_pages > 0 and page_num >= max_pages:
@@ -206,7 +259,15 @@ async def fetch_via_rest_api(
             logger.error(f"    ❌ REST API error for {module_name} (page {page_num}): {e}", exc_info=True)
             break
     
-    logger.info(f"    ✅ Total {module_name} fetched: {len(all_data)} records")
+    # Log summary
+    if module_name == "Notes" and filtered_count > 0:
+        logger.info(
+            f"    ✅ Total {module_name} fetched: {len(all_data)} records "
+            f"({filtered_count} filtered out)"
+        )
+    else:
+        logger.info(f"    ✅ Total {module_name} fetched: {len(all_data)} records")
+    
     return all_data
 
 

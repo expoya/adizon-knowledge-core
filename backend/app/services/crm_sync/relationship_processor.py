@@ -148,10 +148,13 @@ class RelationshipProcessor:
         relations: List[Dict]
     ) -> Dict:
         """
-        Process single relationship batch.
+        Process single relationship batch with chunking.
         
         Uses MATCH (not MERGE) for target nodes to avoid creating orphans.
         Relationships are only created if both source AND target exist.
+        
+        CRITICAL: Neo4j cannot handle 100k+ relationships in one UNWIND!
+        We split into chunks of 1000 relationships per query.
         
         Args:
             edge_type: Relationship type (e.g., "HAS_OWNER")
@@ -171,15 +174,31 @@ class RelationshipProcessor:
             safe_edge, safe_target_label, direction
         )
         
-        result = await self.graph_store.query(
-            cypher_query,
-            parameters={"batch": relations}
-        )
+        # Split into chunks of 1000 to avoid memory/timeout issues
+        chunk_size = 1000
+        total_count = 0
         
-        if result and len(result) > 0:
-            return {"count": result[0].get("count", 0)}
-        else:
-            return {"count": 0}
+        for i in range(0, len(relations), chunk_size):
+            chunk = relations[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            total_chunks = (len(relations) + chunk_size - 1) // chunk_size
+            
+            logger.debug(
+                f"    Processing chunk {chunk_num}/{total_chunks} "
+                f"({len(chunk)} relationships)"
+            )
+            
+            result = await self.graph_store.query(
+                cypher_query,
+                parameters={"batch": chunk}
+            )
+            
+            if result and len(result) > 0:
+                chunk_count = result[0].get("count", 0)
+                total_count += chunk_count
+                logger.debug(f"      ✅ Chunk {chunk_num}: {chunk_count} relationships created")
+        
+        return {"count": total_count}
     
     def _build_cypher_query(
         self,
