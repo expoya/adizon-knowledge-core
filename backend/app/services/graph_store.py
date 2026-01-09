@@ -55,37 +55,43 @@ class GraphStoreService:
         CRITICAL: Without these indexes, relation creation takes HOURS for large datasets!
         With indexes: Milliseconds per relation
         """
+        logger.info("🔧 Creating database indexes...")
+        
         try:
             with self.driver.session(database="neo4j") as session:
                 # Index 1: CRMEntity.source_id (CRITICAL for relations!)
                 try:
-                    session.run(
+                    result = session.run(
                         "CREATE INDEX crm_source_id IF NOT EXISTS FOR (n:CRMEntity) ON (n.source_id)"
                     )
-                    logger.info("✅ Index: CRMEntity.source_id")
+                    result.consume()  # Force execution
+                    logger.info("✅ Index created: CRMEntity.source_id")
                 except Exception as e:
-                    logger.debug(f"Index CRMEntity.source_id skipped: {e}")
+                    logger.error(f"❌ Failed to create index CRMEntity.source_id: {e}")
                 
                 # Index 2: User.source_id (for HAS_OWNER relations)
                 try:
-                    session.run(
+                    result = session.run(
                         "CREATE INDEX user_source_id IF NOT EXISTS FOR (n:User) ON (n.source_id)"
                     )
-                    logger.info("✅ Index: User.source_id")
+                    result.consume()  # Force execution
+                    logger.info("✅ Index created: User.source_id")
                 except Exception as e:
-                    logger.debug(f"Index User.source_id skipped: {e}")
+                    logger.error(f"❌ Failed to create index User.source_id: {e}")
                 
                 # Index 3: source_document_id (for document graph)
                 try:
-                    session.run(
+                    result = session.run(
                         "CREATE INDEX doc_source_id IF NOT EXISTS FOR (n) ON (n.source_document_id)"
                     )
-                    logger.debug("✅ Index: source_document_id")
+                    result.consume()  # Force execution
+                    logger.info("✅ Index created: source_document_id")
                 except Exception as e:
-                    logger.debug(f"Index source_document_id skipped: {e}")
+                    logger.error(f"❌ Failed to create index source_document_id: {e}")
                     
         except Exception as e:
-            logger.warning(f"⚠️ Failed to create indexes (non-critical): {e}")
+            logger.error(f"❌ CRITICAL: Failed to create indexes: {e}", exc_info=True)
+            # Don't raise - let app continue but log the error
 
     async def _run_sync(self, func, *args, **kwargs):
         """Run a synchronous function in the thread pool."""
