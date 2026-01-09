@@ -68,26 +68,39 @@ async def lifespan(app: FastAPI):
     Application lifespan handler.
     Runs startup and shutdown logic.
     """
+    # Get logger
+    logger = logging.getLogger(__name__)
+    
     # Startup
     print("🚀 Starting Adizon Knowledge Core...")
+    logger.info("🚀 Starting Adizon Knowledge Core...")
     print(f"   Environment: {settings.app_env}")
+    logger.info(f"Environment: {settings.app_env}")
     print(f"   Debug: {settings.app_debug}")
+    logger.info(f"Debug Mode: {settings.app_debug}")
     print(f"   Embedding Model: {settings.embedding_model}")
+    logger.info(f"Embedding Model: {settings.embedding_model}")
     
     # Initialize database tables
     await init_database()
+    logger.info("✅ Database tables initialized")
     
     # Ensure MinIO bucket exists
     minio = get_minio_service()
     await minio.ensure_bucket_exists()
+    logger.info("✅ MinIO bucket ready")
     
     print("✅ Startup complete!")
+    logger.info("✅ Startup complete! Ready to accept requests.")
+    logger.info("="*60)
     
     yield
     
     # Shutdown
     print("👋 Shutting down Adizon Knowledge Core...")
+    logger.info("👋 Shutting down Adizon Knowledge Core...")
     await async_engine.dispose()
+    logger.info("✅ Shutdown complete")
 
 
 app = FastAPI(
