@@ -71,9 +71,13 @@ async def router_node(state: AgentState) -> AgentState:
 Analysiere die folgende Benutzeranfrage und klassifiziere sie:
 
 INTENT TYPES:
-- "sql": Frage nach aktuellen Zahlen, Daten, Rechnungen, Kunden, Umsätzen aus Datenbanken
-- "knowledge": Frage nach Dokumenten, Konzepten, Erklärungen, Prozessen aus der Wissensdatenbank
+- "sql": Frage nach finanziellen Daten aus dem ERP-System (Rechnungen, Zahlungen, Buchhaltung, Finanztransaktionen)
+- "knowledge": Frage nach CRM-Daten (Kunden, Accounts, Leads, Deals, Kontakte, Einwände, Meetings) ODER Frage nach Dokumenten, Konzepten, Erklärungen, Prozessen aus der Wissensdatenbank
 - "general": Allgemeine Konversation oder Small Talk
+
+WICHTIG:
+- Kunden, Accounts, Leads, Deals, Kontakte, Einwände → "knowledge" (CRM-Daten im Graph)
+- Rechnungen, Zahlungen, Buchhaltung → "sql" (ERP-Daten in PostgreSQL)
 
 BENUTZERANFRAGE:
 {query}

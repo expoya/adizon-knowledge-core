@@ -489,12 +489,22 @@ class ZohoCRMProvider(CRMProvider):
                         if isinstance(value, dict):
                             # Lookup field: Extract ID and name for RAG/Embeddings
                             lookup_id = value.get("id")
-                            lookup_name = value.get("name")
+                            # Robust name extraction with fallbacks
+                            lookup_name = (
+                                value.get("name") or 
+                                value.get("full_name") or 
+                                value.get("Full_Name") or
+                                value.get("email") or
+                                value.get("Email")
+                            )
                             
                             if lookup_id:
                                 properties[f"{field.lower()}_id"] = str(lookup_id)
                             if lookup_name:
                                 properties[f"{field.lower()}_name"] = str(lookup_name)
+                            elif lookup_id:
+                                # Log warning if we have ID but no name
+                                logger.debug(f"⚠️ Lookup field '{field}' has ID but no name. Available keys: {list(value.keys())}")
                         elif value:
                             # Scalar field: store directly
                             properties[field.lower()] = value
@@ -513,13 +523,23 @@ class ZohoCRMProvider(CRMProvider):
                         target_name = None
                         if isinstance(field_value, dict):
                             target_id = field_value.get("id")
-                            target_name = field_value.get("name")
+                            # Robust name extraction with fallbacks
+                            target_name = (
+                                field_value.get("name") or 
+                                field_value.get("full_name") or 
+                                field_value.get("Full_Name") or
+                                field_value.get("email") or
+                                field_value.get("Email")
+                            )
                             
                             # CRITICAL: Also store lookup as flat property for embeddings
                             if target_id:
                                 properties[f"{field_name.lower()}_id"] = str(target_id)
                             if target_name:
                                 properties[f"{field_name.lower()}_name"] = str(target_name)
+                            elif target_id:
+                                # Log warning if we have ID but no name
+                                logger.debug(f"⚠️ Relation field '{field_name}' has ID but no name. Available keys: {list(field_value.keys())}")
                         elif isinstance(field_value, str):
                             target_id = field_value
                         

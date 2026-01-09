@@ -20,8 +20,18 @@ async def search_knowledge_base(query: str) -> str:
     """
     Durchsucht die interne Wissensdatenbank nach relevanten Informationen.
     
+    Enthält:
+    - CRM-Daten: Accounts (Kunden), Leads (Interessenten), Deals (Geschäfte), 
+      Contacts (Kontakte), Einwände/Objections, Meetings, User/Owner-Informationen
+    - Dokumente: PDF-Dateien, Prozessbeschreibungen, Konzepte, Erklärungen
+    
     Kombiniert Vektor-Suche (für Textabschnitte) und Graph-Suche (für Entitäten
     und Beziehungen) zu einem umfassenden Kontext-String.
+    
+    VERWENDE DIESES TOOL FÜR:
+    - Fragen zu Kunden, Accounts, Leads, Deals, Kontakten
+    - Fragen zu Einwänden, Objections, Meetings
+    - Fragen zu Dokumenten, Prozessen, Konzepten
     
     Args:
         query: Die Suchanfrage des Benutzers
