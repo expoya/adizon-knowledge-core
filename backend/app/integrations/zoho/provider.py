@@ -208,10 +208,25 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # === INCREMENTAL SYNC: Add Modified_Time filter ===
                     if last_sync_time:
+                        # CRITICAL: Zoho COQL does NOT accept milliseconds in datetime!
+                        # Format must be: YYYY-MM-DDTHH:MM:SS+00:00 (NO fractional seconds)
+                        # Remove milliseconds/microseconds from timestamp
+                        if '.' in last_sync_time:
+                            # Split at decimal point and reconstruct with timezone
+                            date_time_part = last_sync_time.split('.')[0]  # Everything before '.'
+                            # Find timezone part (after milliseconds)
+                            tz_part = '+00:00'  # Default
+                            if '+' in last_sync_time:
+                                tz_part = '+' + last_sync_time.split('+')[-1]
+                            elif last_sync_time.endswith('Z'):
+                                tz_part = '+00:00'  # Convert Z to +00:00
+                            zoho_timestamp = f"{date_time_part}{tz_part}"
+                        else:
+                            zoho_timestamp = last_sync_time
+                        
                         # CRITICAL: Use uppercase AND for COQL syntax!
-                        # CRITICAL: Use original ISO format (Zoho accepts it with nanoseconds!)
-                        where_clause += f" AND Modified_Time > '{last_sync_time}'"
-                        logger.info(f"    🔄 Incremental filter: Modified_Time > {last_sync_time}")
+                        where_clause += f" AND Modified_Time > '{zoho_timestamp}'"
+                        logger.info(f"    🔄 Incremental filter: Modified_Time > {zoho_timestamp}")
                     
                     # Special filter for Leads: Only import Leads created after 2024-04-01
                     # CRITICAL: Use uppercase AND for COQL syntax!

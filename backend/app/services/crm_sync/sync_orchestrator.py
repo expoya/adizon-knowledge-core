@@ -106,16 +106,12 @@ class CRMSyncOrchestrator:
             logger.debug("Phase 1: Fetching data from CRM...")
             sync_status.update_phase(SyncPhase.FETCHING, "Fetching data from CRM...")
             
-            # TEMPORARY: Disable incremental sync - Zoho COQL datetime format issues
-            # TODO: Fix datetime format compatibility with Zoho COQL
-            last_sync_time = None  # Force FULL SYNC
-            logger.info(f"📥 FULL SYNC: Incremental sync temporarily disabled")
-            
-            # last_sync_time = await self._get_last_sync_time()
-            # if last_sync_time:
-            #     logger.info(f"🔄 INCREMENTAL SYNC: Fetching records modified since {last_sync_time}")
-            # else:
-            #     logger.info(f"📥 FULL SYNC: First sync or no previous timestamp found")
+            # Get last sync time for incremental sync
+            last_sync_time = await self._get_last_sync_time()
+            if last_sync_time:
+                logger.info(f"🔄 INCREMENTAL SYNC: Fetching records modified since {last_sync_time}")
+            else:
+                logger.info(f"📥 FULL SYNC: First sync or no previous timestamp found")
             
             logger.debug(f"Calling provider.fetch_skeleton_data()...")
             
@@ -272,9 +268,10 @@ class CRMSyncOrchestrator:
     async def _update_sync_timestamp(self):
         """Update last sync timestamp."""
         try:
-            current_time = datetime.now(timezone.utc).isoformat()
-            await self.graph_store.set_last_sync_time(current_time, "crm_sync")
-            logger.info(f"🔄 Updated last sync time: {current_time}")
+            # Use None to let sync_metadata generate properly formatted timestamp
+            # Format will be: YYYY-MM-DDTHH:MM:SS.sss+00:00 (with milliseconds)
+            await self.graph_store.set_last_sync_time(None, "crm_sync")
+            logger.info(f"🔄 Updated last sync time")
         except Exception as e:
             logger.warning(f"⚠️ Failed to update last sync time: {e}")
             # Don't fail the sync if timestamp update fails
