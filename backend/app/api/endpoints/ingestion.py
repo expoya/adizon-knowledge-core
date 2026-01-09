@@ -354,9 +354,20 @@ async def sync_crm_entities(
         provider_name = provider.get_provider_name()
         logger.info(f"📞 Using CRM provider: {provider_name}")
         
-        # Fetch skeleton data
+        # === INCREMENTAL SYNC: Get last sync timestamp ===
+        last_sync_time = await graph_store.get_last_sync_time("crm_sync")
+        
+        if last_sync_time:
+            logger.info(f"🔄 INCREMENTAL SYNC: Fetching records modified since {last_sync_time}")
+        else:
+            logger.info(f"📥 FULL SYNC: First sync or no previous timestamp found")
+        
+        # Fetch skeleton data (with optional incremental filter)
         logger.info(f"📥 Fetching skeleton data for: {request.entity_types or 'default types'}")
-        skeleton_data = await provider.fetch_skeleton_data(request.entity_types)
+        skeleton_data = await provider.fetch_skeleton_data(
+            entity_types=request.entity_types,
+            last_sync_time=last_sync_time
+        )
         
         if not skeleton_data:
             return CRMSyncResponse(
@@ -603,6 +614,16 @@ async def sync_crm_entities(
             )
         
         logger.info(f"✅ {status_msg}")
+        
+        # === INCREMENTAL SYNC: Update last sync timestamp ===
+        try:
+            from datetime import datetime, timezone
+            current_time = datetime.now(timezone.utc).isoformat()
+            await graph_store.set_last_sync_time(current_time, "crm_sync")
+            logger.info(f"🔄 Updated last sync time: {current_time}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update last sync time: {e}")
+            # Don't fail the sync if timestamp update fails
         
         # Build error details with IDs
         error_details = []

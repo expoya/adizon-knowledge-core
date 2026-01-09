@@ -566,6 +566,70 @@ class GraphStoreService:
             logger.error(f"Failed to delete graph nodes for document {document_id}: {e}")
             raise
 
+    async def get_last_sync_time(self, sync_key: str = "crm_sync") -> str | None:
+        """
+        Get the last sync timestamp for a given sync key.
+        
+        Args:
+            sync_key: Unique key for this sync type (default: "crm_sync")
+            
+        Returns:
+            ISO 8601 timestamp string or None if never synced
+        """
+        try:
+            result = await self._run_sync(
+                self.driver.execute_query,
+                """
+                MATCH (sys:System {key: $sync_key})
+                RETURN sys.last_sync_time as last_sync_time
+                """,
+                sync_key=sync_key,
+                database_="neo4j",
+            )
+            
+            if result and result.records and len(result.records) > 0:
+                last_sync = result.records[0].get("last_sync_time")
+                if last_sync:
+                    # Convert Neo4j DateTime to ISO string
+                    return last_sync.isoformat() if hasattr(last_sync, 'isoformat') else str(last_sync)
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Failed to get last sync time: {e}")
+            return None
+
+    async def set_last_sync_time(self, timestamp: str | None = None, sync_key: str = "crm_sync") -> None:
+        """
+        Set the last sync timestamp for a given sync key.
+        
+        Args:
+            timestamp: ISO 8601 timestamp string or None for current time
+            sync_key: Unique key for this sync type (default: "crm_sync")
+        """
+        try:
+            # Use provided timestamp or current time
+            if timestamp is None:
+                timestamp = datetime.now(timezone.utc).isoformat()
+            
+            await self._run_sync(
+                self.driver.execute_query,
+                """
+                MERGE (sys:System {key: $sync_key})
+                SET sys.last_sync_time = datetime($timestamp),
+                    sys.updated_at = datetime()
+                """,
+                sync_key=sync_key,
+                timestamp=timestamp,
+                database_="neo4j",
+            )
+            
+            logger.info(f"✅ Updated last sync time: {timestamp}")
+            
+        except Exception as e:
+            logger.error(f"Failed to set last sync time: {e}")
+            raise
+
 
 # Singleton instance
 _graph_store_service: GraphStoreService | None = None

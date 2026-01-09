@@ -120,15 +120,19 @@ class ZohoCRMProvider(CRMProvider):
 
     async def fetch_skeleton_data(
         self, 
-        entity_types: Optional[List[str]] = None
+        entity_types: Optional[List[str]] = None,
+        last_sync_time: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetches skeleton data from Zoho CRM with structured graph schema.
         
         Orchestrates fetching and processing for all entity types.
+        Supports incremental sync via Modified_Time filter.
         
         Args:
             entity_types: List of entity types to fetch, or None for all
+            last_sync_time: ISO timestamp for incremental sync (fetch only modified records)
+                           If None, fetches all records (initial sync)
         
         Returns:
             List of processed records ready for graph ingestion
@@ -136,8 +140,11 @@ class ZohoCRMProvider(CRMProvider):
         if entity_types is None:
             entity_types = get_all_entity_types()
         
-        logger.info(f"📥 Fetching skeleton data with graph schema")
+        sync_mode = "INCREMENTAL" if last_sync_time else "FULL"
+        logger.info(f"📥 Fetching skeleton data ({sync_mode} SYNC)")
         logger.info(f"  Entity types: {entity_types}")
+        if last_sync_time:
+            logger.info(f"  🔄 Incremental: Modified since {last_sync_time}")
         
         results = []
         
@@ -197,24 +204,29 @@ class ZohoCRMProvider(CRMProvider):
                         module_name,
                         fields,
                         limit=200,  # REST API: 200 per page
-                        max_pages=3  # 3 pages × 200 = 600 records max per module
+                        max_pages=999  # Fetch all pages (incremental sync handles volume)
                     )
                 else:
                     # Regular CRM modules use COQL
                     where_clause = "id is not null"
                     
+                    # === INCREMENTAL SYNC: Add Modified_Time filter ===
+                    if last_sync_time:
+                        where_clause += f" AND Modified_Time > '{last_sync_time}'"
+                        logger.info(f"    🔄 Incremental filter: Modified_Time > {last_sync_time}")
+                    
                     # Special filter for Leads: Only import Leads created after 2024-04-01
                     if module_name == "Leads":
-                        where_clause = "id is not null AND Created_Time > '2024-04-01T00:00:00+00:00'"
-                        logger.info(f"    📅 Applying Leads filter: Created_Time > 2024-04-01 (prevents importing 117k old leads)")
+                        where_clause += " AND Created_Time > '2024-04-01T00:00:00+00:00'"
+                        logger.info(f"    📅 Leads date filter: Created_Time > 2024-04-01")
                     
                     data = await fetch_via_coql(
                         self.client,
                         module_name,
                         fields,
                         where_clause=where_clause,
-                        limit=500,  # 500 records per module (safe limit for validation)
-                        max_pages=1  # 1 page only = 500 records max per module
+                        limit=2000,  # Zoho COQL max: 2,000 per query
+                        max_pages=5  # Max 5 pages = 10,000 records (COQL session limit)
                     )
                 
                 # === CHECK DATA ===
