@@ -16,10 +16,11 @@
 
 ## 📚 Hauptdokumentation
 
-### Neu in Version 2.0
+### Neu in Version 2.0+
 
 | Dokument | Beschreibung |
 |----------|--------------|
+| **[GRAPH_SCHEMA.md](GRAPH_SCHEMA.md)** | ✨ **NEU V2.1:** Complete Neo4j Graph Schema Documentation |
 | **[AGENTIC_RAG.md](AGENTIC_RAG.md)** | ✨ **NEU:** Kompletter Guide zur Agentic RAG Architektur |
 | **[QUICK_START.md](QUICK_START.md)** | ✨ **NEU:** 10-Minuten Quick Start Guide |
 
@@ -36,6 +37,8 @@
 
 | Dokument | Beschreibung |
 |----------|--------------|
+| **[2026-01-10: Graph Schema V2](changelogs/2026-01-10_graph-schema-v2.md)** | ✨ **NEU:** Typed Graph Schema, 12+ Node Types, Batch Processing |
+| **[2026-01-08: CRM Integration](changelogs/2026-01-08_crm-integration.md)** | ✨ **NEU:** Modular CRM Plugin System (Zoho) |
 | **[2026-01-08: Agentic RAG v2.0](changelogs/2026-01-08_agentic-rag-v2.md)** | ✨ **NEU:** Version 2.0 Release Notes |
 | [2025-01-04: Hybrid Architecture](changelogs/2025-01-04_hybrid-architecture.md) | Multi-Tenant Ontology, Trooper Worker |
 

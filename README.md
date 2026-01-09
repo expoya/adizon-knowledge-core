@@ -13,10 +13,20 @@ A Sovereign AI RAG (Retrieval-Augmented Generation) System with Knowledge Graph 
 - **Backend**: FastAPI with async endpoints + LangGraph workflow
 - **Agent System**: LangGraph-based autonomous routing
 - **Vector Store**: PostgreSQL with pgvector extension
-- **Knowledge Graph**: Neo4j for entity relationships
+- **Knowledge Graph**: Neo4j with typed schema (12+ node types, 14 relationship types)
 - **SQL Integration**: External database connectivity with query generation
+- **CRM Integration**: Modular plugin system (Zoho CRM)
 - **File Storage**: MinIO (S3-compatible)
 - **Frontend**: React + TypeScript + Tailwind CSS
+
+### 🆕 Graph Schema V2.0
+
+Das System nutzt ein **typisiertes Neo4j Schema** mit spezifischen Labels und Relationships:
+- **Node Types**: User, Account, Contact, Lead, Deal, CalendlyEvent, Task, Note, Invoice, Subscription, Einwand, Attachment
+- **Relationships**: HAS_OWNER, WORKS_AT, HAS_DEAL, ASSOCIATED_WITH, HAS_EVENT, HAS_TASK, und mehr
+- **Performance**: 10x schneller durch Batch Processing und Label-Indexing
+
+📚 **[Complete Graph Schema Documentation](docs/GRAPH_SCHEMA.md)**
 
 ## ✨ Key Features
 
