@@ -586,35 +586,35 @@ class ZohoCRMProvider(CRMProvider):
                     logger.info(f"    🔥 SMOKE TEST MODE: LIMIT {limit}, max {max_pages} page(s)")
                     
                     while True:
-                        # Build paginated query
-                        query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
-                        logger.debug(f"    Query (Page {page}): {query}")
-                        
                         try:
+                            # Build paginated query
+                            query = f"SELECT {', '.join(fields_to_select)} FROM {module_name} WHERE {where_clause} LIMIT {limit} OFFSET {offset}"
+                            logger.debug(f"    Query (Page {page}): {query}")
+                            
                             # Execute query
                             data = await self.execute_raw_query(query)
-                        
-                        if not data:
-                            logger.debug(f"    📄 Page {page}: No more records")
-                            break  # No more records
-                        
-                        all_data.extend(data)
-                        logger.info(f"    📄 Page {page}: Fetched {len(data)} records (Total: {len(all_data)})")
-                        
-                        # 🔥 SMOKE TEST: Stop after max_pages
-                        if page >= max_pages:
-                            logger.info(f"    🔥 SMOKE TEST: Stopping after {max_pages} page(s)")
-                            break
-                        
-                        # Check if we got less than limit (last page)
-                        if len(data) < limit:
-                            logger.info(f"    ✅ Last page reached ({len(data)} < {limit})")
-                            break
-                        
-                        # Increment for next page
-                        offset += limit
-                        page += 1
-                        
+                            
+                            if not data:
+                                logger.debug(f"    📄 Page {page}: No more records")
+                                break  # No more records
+                            
+                            all_data.extend(data)
+                            logger.info(f"    📄 Page {page}: Fetched {len(data)} records (Total: {len(all_data)})")
+                            
+                            # 🔥 SMOKE TEST: Stop after max_pages
+                            if page >= max_pages:
+                                logger.info(f"    🔥 SMOKE TEST: Stopping after {max_pages} page(s)")
+                                break
+                            
+                            # Check if we got less than limit (last page)
+                            if len(data) < limit:
+                                logger.info(f"    ✅ Last page reached ({len(data)} < {limit})")
+                                break
+                            
+                            # Increment for next page
+                            offset += limit
+                            page += 1
+                            
                             # Rate Limit Protection: Sleep 0.6s between calls
                             # Zoho allows 100 calls/min = 1 call every 0.6s
                             await asyncio.sleep(0.6)
