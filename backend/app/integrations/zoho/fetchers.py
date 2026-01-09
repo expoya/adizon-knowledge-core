@@ -108,16 +108,19 @@ async def fetch_via_rest_api(
     max_pages: int = 1
 ) -> List[Dict[str, Any]]:
     """
-    Fetches records via Zoho REST API with pagination.
+    Fetches records via Zoho REST API with page_token pagination.
     
-    Used for modules that don't support COQL (Invoices, Subscriptions, Emails).
+    Zoho REST API Pagination:
+    - First 2000 records: Use 'page' parameter (pages 1-10 @ 200 per page)
+    - Beyond 2000: Must use 'page_token' from response
+    - Response contains: info.more_records + info.next_page_token
     
     Args:
         client: ZohoClient instance
-        module_name: Zoho module name (e.g., "Invoices", "Emails")
+        module_name: Zoho module name (e.g., "Deals", "Tasks", "Notes")
         fields: List of fields to retrieve
         limit: Records per page (max 200 for REST API)
-        max_pages: Maximum pages to fetch (for testing)
+        max_pages: Maximum pages to fetch (0 = unlimited)
         
     Returns:
         List of records
@@ -127,8 +130,9 @@ async def fetch_via_rest_api(
     all_data = []
     page_num = 1
     rest_limit = min(limit, 200)  # REST API max 200 per page
+    page_token = None
     
-    while page_num <= max_pages:  # 🔥 SMOKE TEST: Limited pages
+    while True:
         try:
             # Build REST API endpoint
             # NOTE: Emails module uses v2 API, not v6!
@@ -138,15 +142,25 @@ async def fetch_via_rest_api(
             # Build query parameters
             params = {
                 "fields": ",".join(fields),
-                "per_page": rest_limit,
-                "page": page_num
+                "per_page": rest_limit
             }
+            
+            # Use page_token if we have one (for records beyond 2000)
+            # Otherwise use page number (for first 2000 records)
+            if page_token:
+                params["page_token"] = page_token
+                logger.debug(f"    📄 Using page_token pagination (beyond record 2000)")
+            else:
+                params["page"] = page_num
             
             # Execute request
             response = await client.get(endpoint, params=params)
             
-            # Return data field
+            # Extract data and pagination info
             data_page = response.get("data", [])
+            info = response.get("info", {})
+            more_records = info.get("more_records", False)
+            next_page_token = info.get("next_page_token")
             
             if not data_page:
                 if page_num == 1:
@@ -158,30 +172,41 @@ async def fetch_via_rest_api(
             all_data.extend(data_page)
             logger.info(f"    📄 Page {page_num}: Fetched {len(data_page)} records (Total: {len(all_data)})")
             
-            # 🔥 SMOKE TEST: Stop after max_pages
-            if page_num >= max_pages:
-                logger.info(f"    🔥 SMOKE TEST: Stopping after {max_pages} page(s)")
+            # Check if max_pages limit reached (0 = unlimited)
+            if max_pages > 0 and page_num >= max_pages:
+                logger.info(f"    ⏸️ Stopping after {max_pages} page(s) (max_pages limit)")
                 break
             
-            # Check if we got less than limit (last page)
-            if len(data_page) < rest_limit:
-                logger.info(f"    ✅ Last page reached ({len(data_page)} < {rest_limit})")
+            # Check if there are more records
+            if not more_records:
+                logger.info(f"    ✅ All records fetched (more_records=false)")
                 break
             
-            # Increment page
+            # Update page_token for next iteration
+            if next_page_token:
+                page_token = next_page_token
+            
+            # Increment page counter
             page_num += 1
             
-            # Rate Limit Protection
+            # Rate Limit Protection (100 calls/minute = 0.6s per call)
             await asyncio.sleep(0.6)
             
         except ZohoAPIError as e:
-            logger.error(f"    ❌ REST API failed for {module_name} (page {page_num}) | Error: {str(e)}")
-            break
+            # If DISCRETE_PAGINATION_LIMIT_EXCEEDED and we have data, continue with page_token
+            if "DISCRETE_PAGINATION_LIMIT_EXCEEDED" in str(e) and all_data:
+                logger.warning(f"    ⚠️ Hit 2000 record limit on page {page_num}, need page_token to continue")
+                logger.info(f"    ℹ️ Fetched {len(all_data)} records so far, but more exist")
+                break
+            else:
+                logger.error(f"    ❌ REST API failed for {module_name} (page {page_num}) | Error: {str(e)}")
+                break
             
         except Exception as e:
             logger.error(f"    ❌ REST API error for {module_name} (page {page_num}): {e}", exc_info=True)
             break
     
+    logger.info(f"    ✅ Total {module_name} fetched: {len(all_data)} records")
     return all_data
 
 
