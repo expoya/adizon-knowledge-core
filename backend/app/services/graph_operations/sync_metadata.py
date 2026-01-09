@@ -87,7 +87,10 @@ class GraphSyncMetadata:
         try:
             # Use provided timestamp or current time
             if timestamp is None:
-                timestamp = datetime.now(timezone.utc).isoformat()
+                # Format with milliseconds (3 digits) - Zoho COQL doesn't accept nanoseconds!
+                # Standard ISO 8601: YYYY-MM-DDTHH:MM:SS.sss+00:00
+                now = datetime.now(timezone.utc)
+                timestamp = now.strftime('%Y-%m-%dT%H:%M:%S') + f'.{now.microsecond//1000:03d}+00:00'
             
             await self._run_sync(
                 self.driver.execute_query,
