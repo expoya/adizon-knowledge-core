@@ -207,17 +207,16 @@ class ZohoCRMProvider(CRMProvider):
                     where_clause = "id is not null"
                     
                     # === INCREMENTAL SYNC: Add Modified_Time filter ===
-                    # TEMPORARILY DISABLED: Modified_Time filter causes INVALID_QUERY errors
-                    # TODO: Debug why Modified_Time filtering doesn't work (field name? format?)
-                    # For now, rely on full sync (still fast with SMOKE TEST limits)
-                    if False and last_sync_time:  # Disabled
-                        # CRITICAL: Zoho COQL datetime format (with timezone works!)
-                        # Format: 'YYYY-MM-DDTHH:MM:SS+00:00'
+                    if last_sync_time:
+                        # CRITICAL: Zoho COQL datetime format REQUIRES timezone!
+                        # Format: 'YYYY-MM-DDTHH:MM:SS+00:00' (milliseconds must be removed)
+                        # Example: '2024-04-01T00:00:00+00:00' (this works!)
+                        
                         # Remove milliseconds but KEEP timezone
                         if '.' in last_sync_time:
-                            # Split at decimal point and reconstruct with timezone
+                            # Split: "2026-01-09T20:06:36.047+00:00" -> "2026-01-09T20:06:36" + "+00:00"
                             date_time_part = last_sync_time.split('.')[0]
-                            # Find timezone part
+                            # Find timezone part (after milliseconds)
                             if '+' in last_sync_time:
                                 tz_part = '+' + last_sync_time.split('+')[-1]
                             elif 'Z' in last_sync_time:
@@ -226,7 +225,12 @@ class ZohoCRMProvider(CRMProvider):
                                 tz_part = '+00:00'  # Default
                             zoho_timestamp = f"{date_time_part}{tz_part}"
                         else:
-                            zoho_timestamp = last_sync_time
+                            # No milliseconds, check if timezone exists
+                            if '+' not in last_sync_time and 'Z' not in last_sync_time:
+                                # Add default timezone if missing
+                                zoho_timestamp = f"{last_sync_time}+00:00"
+                            else:
+                                zoho_timestamp = last_sync_time
                         
                         # CRITICAL: Use uppercase AND for COQL syntax!
                         where_clause += f" AND Modified_Time > '{zoho_timestamp}'"
