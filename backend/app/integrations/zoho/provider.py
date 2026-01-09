@@ -229,7 +229,11 @@ class ZohoCRMProvider(CRMProvider):
                     contacts_data = data
                 
                 # === PROCESS RECORDS ===
-                for record in data:
+                for i, record in enumerate(data):
+                    # 🐛 DEBUG: Log first record of each type to see raw data
+                    if i == 0:
+                        logger.info(f"    🐛 DEBUG: First {entity_type} record: {record}")
+                    
                     processed = process_zoho_record(record, label, fields, relations)
                     results.append(processed)
                 
