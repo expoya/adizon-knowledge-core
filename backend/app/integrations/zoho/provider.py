@@ -275,7 +275,7 @@ class ZohoCRMProvider(CRMProvider):
             "Leads": {
                 "label": "Lead",
                 "module_name": "Leads",
-                "fields": ["id", "Last_Name", "First_Name", "Company", "Email", "Owner", "Converted_Account"],
+                "fields": ["id", "Last_Name", "First_Name", "Company", "Email", "Owner", "Converted_Account", "Created_Time"],
                 "relations": [
                     {"field": "Owner", "edge": "HAS_OWNER", "target_label": "User", "direction": "OUTGOING"},
                     {"field": "Converted_Account", "edge": "IS_CONVERTED_FROM", "target_label": "Account", "direction": "INCOMING"}
@@ -550,7 +550,16 @@ class ZohoCRMProvider(CRMProvider):
                     if "Last_Name" in fields_to_select and "First_Name" in fields_to_select:
                         first = record.get("First_Name", "")
                         last = record.get("Last_Name", "")
-                        properties["name"] = f"{first} {last}".strip() or f"Unknown {label}"
+                        
+                        # Filter out "None" as string and None values
+                        if first in [None, "None", ""]:
+                            first = ""
+                        if last in [None, "None", ""]:
+                            last = ""
+                        
+                        # Build name without "None" prefix
+                        full_name = f"{first} {last}".strip()
+                        properties["name"] = full_name if full_name else f"Unknown {label}"
                     elif "Account_Name" in fields_to_select:
                         properties["name"] = record.get("Account_Name", f"Unknown {label}")
                     elif "Deal_Name" in fields_to_select:
@@ -573,22 +582,35 @@ class ZohoCRMProvider(CRMProvider):
                         if isinstance(value, dict):
                             # Lookup field: Extract ID and name for RAG/Embeddings
                             lookup_id = value.get("id")
-                            # Robust name extraction with fallbacks
+                            
+                            # Robust name extraction with multiple fallbacks
                             lookup_name = (
                                 value.get("name") or 
                                 value.get("full_name") or 
                                 value.get("Full_Name") or
+                                value.get("first_name") or
+                                value.get("last_name") or
                                 value.get("email") or
-                                value.get("Email")
+                                value.get("Email") or
+                                value.get("Account_Name") or
+                                value.get("Deal_Name") or
+                                value.get("Subject")
                             )
+                            
+                            # For Owner fields: Try combining first + last name
+                            if not lookup_name and "Owner" in field:
+                                first_name = value.get("first_name", "")
+                                last_name = value.get("last_name", "")
+                                if first_name or last_name:
+                                    lookup_name = f"{first_name} {last_name}".strip()
                             
                             if lookup_id:
                                 properties[f"{field.lower()}_id"] = str(lookup_id)
                             if lookup_name:
                                 properties[f"{field.lower()}_name"] = str(lookup_name)
-                            elif lookup_id:
+                            else:
                                 # Log warning if we have ID but no name
-                                logger.debug(f"⚠️ Lookup field '{field}' has ID but no name. Available keys: {list(value.keys())}")
+                                logger.warning(f"⚠️ Lookup field '{field}' has ID but no name. Available keys: {list(value.keys())}, Values sample: {str(value)[:100]}")
                         elif value:
                             # Scalar field: store directly
                             properties[field.lower()] = value
@@ -607,23 +629,36 @@ class ZohoCRMProvider(CRMProvider):
                         target_name = None
                         if isinstance(field_value, dict):
                             target_id = field_value.get("id")
-                            # Robust name extraction with fallbacks
+                            
+                            # Robust name extraction with multiple fallbacks
                             target_name = (
                                 field_value.get("name") or 
                                 field_value.get("full_name") or 
                                 field_value.get("Full_Name") or
+                                field_value.get("first_name") or
+                                field_value.get("last_name") or
                                 field_value.get("email") or
-                                field_value.get("Email")
+                                field_value.get("Email") or
+                                field_value.get("Account_Name") or
+                                field_value.get("Deal_Name") or
+                                field_value.get("Subject")
                             )
+                            
+                            # For Owner fields: Try combining first + last name
+                            if not target_name and "Owner" in field_name:
+                                first_name = field_value.get("first_name", "")
+                                last_name = field_value.get("last_name", "")
+                                if first_name or last_name:
+                                    target_name = f"{first_name} {last_name}".strip()
                             
                             # CRITICAL: Also store lookup as flat property for embeddings
                             if target_id:
                                 properties[f"{field_name.lower()}_id"] = str(target_id)
                             if target_name:
                                 properties[f"{field_name.lower()}_name"] = str(target_name)
-                            elif target_id:
+                            else:
                                 # Log warning if we have ID but no name
-                                logger.debug(f"⚠️ Relation field '{field_name}' has ID but no name. Available keys: {list(field_value.keys())}")
+                                logger.warning(f"⚠️ Relation field '{field_name}' has ID but no name. Available keys: {list(field_value.keys())}, Values sample: {str(field_value)[:100]}")
                         elif isinstance(field_value, str):
                             target_id = field_value
                         
