@@ -151,8 +151,8 @@ async def query_notes(client: ZohoClient, zoho_id: str) -> str:
     """
     try:
         # Notes use Parent_Id which can point to any module
-        # We try to fetch notes via REST API Related Lists
-        query = f"SELECT Note_Title, Note_Content, Created_Time FROM Notes WHERE Parent_Id.id = '{zoho_id}' ORDER BY Created_Time DESC LIMIT 20"
+        # FIXED: Parent_Id.id → Parent_Id (correct COQL syntax)
+        query = f"SELECT Note_Title, Note_Content, Created_Time FROM Notes WHERE Parent_Id = '{zoho_id}' ORDER BY Created_Time DESC LIMIT 20"
         response = await client.post("/crm/v6/coql", json={"select_query": query})
         notes = response.get("data", [])
         

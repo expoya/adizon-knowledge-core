@@ -92,82 +92,126 @@ async def router_node(state: AgentState) -> AgentState:
     # Bei Fragen: Suche optional nach CRM-Entities im Graph
     if state["intent"] == "question":
         try:
-            logger.info("🔍 Checking for CRM entities in query...")
+            logger.info("🔍 Step 1: Extracting entity names from query using LLM...")
+            
+            # STEP 1: LLM extrahiert Entity-Namen aus der User-Anfrage
+            llm = get_llm(temperature=0.0, streaming=False)
+            entity_extraction_prompt = get_prompt("entity_extraction")
+            
+            try:
+                extraction_result = await llm.ainvoke([
+                    SystemMessage(content=entity_extraction_prompt.format(query=user_message))
+                ])
+                
+                # Parse JSON response
+                import json
+                extracted_text = extraction_result.content.strip()
+                # Remove markdown code blocks if present
+                if extracted_text.startswith("```"):
+                    extracted_text = extracted_text.split("```")[1]
+                    if extracted_text.startswith("json"):
+                        extracted_text = extracted_text[4:]
+                extracted_text = extracted_text.strip()
+                
+                entity_names = json.loads(extracted_text)
+                
+                if entity_names:
+                    logger.info(f"  ✅ LLM extracted {len(entity_names)} entity names: {entity_names}")
+                else:
+                    logger.debug("  ℹ️ No entity names extracted from query")
+                    return state
+                    
+            except Exception as e:
+                logger.warning(f"  ⚠️ Entity extraction failed: {e}")
+                return state
+            
+            # STEP 2: Einfache Graph-Suche mit extrahierten Namen
+            logger.info("🔍 Step 2: Searching graph for extracted entities...")
             
             graph_store = get_graph_store_service()
             
-            # Smart Entity Resolution mit Relevanz-Scoring
-            # Sucht in: name, company, account_name_name, contact_name_name, first_name + last_name
-            cypher_query = """
-            MATCH (n)
-            WHERE n.source_id STARTS WITH 'zoho_'
-            WITH n, $query as query
-            // Calculate relevance score based on multiple fields
-            WITH n, query,
-              CASE 
-                // Exact matches (highest score)
-                WHEN toLower(coalesce(n.name, '')) = toLower(query) THEN 100
-                WHEN toLower(coalesce(n.company, '')) = toLower(query) THEN 100
-                WHEN toLower(coalesce(n.account_name, '')) = toLower(query) THEN 100
-                // Full phrase matches
-                WHEN toLower(coalesce(n.name, '')) CONTAINS toLower(query) THEN 50
-                WHEN toLower(coalesce(n.company, '')) CONTAINS toLower(query) THEN 50
-                WHEN toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(query) THEN 50
-                // Partial word matches
-                WHEN ANY(word IN split(toLower(query), ' ') WHERE 
-                    toLower(coalesce(n.name, '')) CONTAINS word OR
-                    toLower(coalesce(n.company, '')) CONTAINS word OR
-                    toLower(coalesce(n.first_name, '')) CONTAINS word OR
-                    toLower(coalesce(n.last_name, '')) CONTAINS word
-                ) THEN 25
-                ELSE 0
-              END as match_score,
-              // Entity type priority (Contact/Account > Events/Tasks)
-              CASE labels(n)[0]
-                WHEN 'Contact' THEN 10
-                WHEN 'Account' THEN 9
-                WHEN 'Lead' THEN 8
-                WHEN 'Deal' THEN 7
-                WHEN 'User' THEN 6
-                ELSE 1
-              END as type_score
-            WHERE match_score > 0
-            RETURN 
-              n.source_id as source_id, 
-              coalesce(n.name, n.account_name, n.company, 'Unknown') as name,
-              labels(n)[0] as type,
-              (match_score + type_score) as total_score
-            ORDER BY total_score DESC
-            LIMIT 3
-            """
+            all_matches = []
             
-            result = await graph_store.query(
-                cypher_query,
-                parameters={"query": user_message}
-            )
+            for entity_name in entity_names:
+                # Einfache, präzise Query mit exaktem Namen
+                cypher_query = """
+                MATCH (n)
+                WHERE n.source_id STARTS WITH 'zoho_'
+                  AND (
+                    toLower(n.name) = toLower($name)
+                    OR toLower(n.company) = toLower($name)
+                    OR toLower(n.account_name) = toLower($name)
+                    OR (toLower(n.first_name) + ' ' + toLower(n.last_name)) = toLower($name)
+                  )
+                RETURN 
+                  n.source_id as source_id,
+                  coalesce(n.name, n.account_name, n.company, n.first_name + ' ' + n.last_name) as name,
+                  labels(n)[0] as type,
+                  100 as score
+                
+                UNION
+                
+                // Fallback: Partial match if exact not found
+                MATCH (n)
+                WHERE n.source_id STARTS WITH 'zoho_'
+                  AND (
+                    toLower(n.name) CONTAINS toLower($name)
+                    OR toLower(n.company) CONTAINS toLower($name)
+                    OR toLower(n.account_name) CONTAINS toLower($name)
+                  )
+                RETURN 
+                  n.source_id as source_id,
+                  coalesce(n.name, n.account_name, n.company) as name,
+                  labels(n)[0] as type,
+                  50 as score
+                
+                ORDER BY score DESC
+                LIMIT 3
+                """
+                
+                result = await graph_store.query(
+                    cypher_query,
+                    parameters={"name": entity_name}
+                )
+                
+                if result:
+                    logger.info(f"  ✅ Found {len(result)} matches for '{entity_name}'")
+                    for match in result:
+                        match["searched_name"] = entity_name
+                        all_matches.append(match)
+                else:
+                    logger.warning(f"  ⚠️ No matches found for '{entity_name}'")
             
-            if result and len(result) > 0:
-                # Bester Match
-                best_match = result[0]
+            # STEP 3: Wähle besten Match
+            if all_matches:
+                # Sortiere nach Score (höchster zuerst)
+                all_matches.sort(key=lambda x: x.get("score", 0), reverse=True)
+                
+                best_match = all_matches[0]
                 source_id = best_match.get("source_id")
                 entity_name = best_match.get("name")
                 entity_type = best_match.get("type")
-                best_score = best_match.get("total_score", 0)
+                score = best_match.get("score", 0)
+                searched_name = best_match.get("searched_name", "")
                 
-                # Check if match is confident (score > 60)
-                if best_score >= 60:
-                    logger.info(f"✅ Confident match: {entity_name} ({entity_type}) with ID: {source_id} [Score: {best_score}]")
-                    state["crm_target"] = source_id
-                else:
-                    # Multiple candidates with similar scores - log for transparency
-                    logger.warning(f"⚠️ Uncertain match (Score: {best_score}): {entity_name} ({entity_type})")
-                    logger.info(f"  Other candidates: {[r.get('name') for r in result[1:]]}")
-                    
-                    # Use best match but note uncertainty in state
-                    state["crm_target"] = source_id
+                logger.info(f"  🎯 Best match for '{searched_name}': {entity_type} '{entity_name}' (Score: {score})")
+                
+                # Log alle Matches für Transparenz
+                if len(all_matches) > 1:
+                    logger.info(f"  📋 All matches:")
+                    for i, match in enumerate(all_matches[:5]):
+                        marker = "✅" if i == 0 else f"  #{i+1}"
+                        logger.info(f"    {marker} {match.get('type')} '{match.get('name')}' (Score: {match.get('score')})")
+                
+                # Verwende besten Match
+                state["crm_target"] = source_id
+                
+                # Bei Score < 100 (kein exakter Match) → Unsicherheit markieren
+                if score < 100:
+                    logger.warning(f"  ⚠️ Match is not exact (Score: {score}) - marking as uncertain")
                     state["entity_uncertain"] = True
             else:
-                logger.debug("  ℹ️ No entities found in query")
+                logger.debug("  ℹ️ No entities found in graph")
                 
         except Exception as e:
             logger.warning(f"⚠️ Entity search failed: {e}")
@@ -252,54 +296,99 @@ async def knowledge_node(state: AgentState) -> AgentState:
             from app.services.graph_store import get_graph_store_service
             graph_store = get_graph_store_service()
             
-            # Smart Entity Resolution mit Relevanz-Scoring
-            cypher_query = """
-            MATCH (n)
-            WHERE n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_'
-            WITH n, $query as query
-            // Calculate relevance score based on multiple fields
-            WITH n, query,
-              CASE 
-                // Exact matches (highest score)
-                WHEN toLower(coalesce(n.name, '')) = toLower(query) THEN 100
-                WHEN toLower(coalesce(n.company, '')) = toLower(query) THEN 100
-                WHEN toLower(coalesce(n.account_name, '')) = toLower(query) THEN 100
-                // Full phrase matches
-                WHEN toLower(coalesce(n.name, '')) CONTAINS toLower(query) THEN 50
-                WHEN toLower(coalesce(n.company, '')) CONTAINS toLower(query) THEN 50
-                WHEN toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(query) THEN 50
-                // Partial word matches
-                WHEN ANY(word IN split(toLower(query), ' ') WHERE 
-                    toLower(coalesce(n.name, '')) CONTAINS word OR
-                    toLower(coalesce(n.company, '')) CONTAINS word OR
-                    toLower(coalesce(n.first_name, '')) CONTAINS word OR
-                    toLower(coalesce(n.last_name, '')) CONTAINS word
-                ) THEN 25
-                ELSE 0
-              END as match_score,
-              // Entity type priority
-              CASE labels(n)[0]
-                WHEN 'Contact' THEN 10
-                WHEN 'Account' THEN 9
-                WHEN 'Lead' THEN 8
-                WHEN 'Deal' THEN 7
-                WHEN 'User' THEN 6
-                ELSE 1
-              END as type_score
-            WHERE match_score > 0
-            RETURN 
-              n.source_id as source_id,
-              coalesce(n.name, n.account_name, n.company, 'Unknown') as name,
-              labels(n)[0] as type,
-              (match_score + type_score) as total_score
-            ORDER BY total_score DESC
-            LIMIT 5
-            """
+            # STEP 2a: LLM extrahiert Entity-Namen
+            logger.info("  🔍 Step 2a: Extracting entity names from query using LLM...")
             
-            entities = await graph_store.query(
-                cypher_query,
-                parameters={"query": user_message}
-            )
+            llm = get_llm(temperature=0.0, streaming=False)
+            entity_extraction_prompt = get_prompt("entity_extraction")
+            
+            try:
+                extraction_result = await llm.ainvoke([
+                    SystemMessage(content=entity_extraction_prompt.format(query=user_message))
+                ])
+                
+                # Parse JSON response
+                import json
+                extracted_text = extraction_result.content.strip()
+                # Remove markdown code blocks if present
+                if extracted_text.startswith("```"):
+                    extracted_text = extracted_text.split("```")[1]
+                    if extracted_text.startswith("json"):
+                        extracted_text = extracted_text[4:]
+                extracted_text = extracted_text.strip()
+                
+                entity_names = json.loads(extracted_text)
+                
+                if entity_names:
+                    logger.info(f"    ✅ LLM extracted {len(entity_names)} entity names: {entity_names}")
+                else:
+                    logger.debug("    ℹ️ No entity names extracted from query")
+                    # Continue without entities
+                    entity_names = []
+                    
+            except Exception as e:
+                logger.warning(f"    ⚠️ Entity extraction failed: {e}")
+                entity_names = []
+            
+            # STEP 2b: Graph-Suche mit extrahierten Namen
+            if entity_names:
+                logger.info("  🔍 Step 2b: Searching graph for extracted entities...")
+                
+                all_matches = []
+                
+                for entity_name in entity_names:
+                    # Einfache, präzise Query mit exaktem Namen
+                    cypher_query = """
+                    MATCH (n)
+                    WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
+                      AND (
+                        toLower(n.name) = toLower($name)
+                        OR toLower(n.company) = toLower($name)
+                        OR toLower(n.account_name) = toLower($name)
+                        OR (toLower(n.first_name) + ' ' + toLower(n.last_name)) = toLower($name)
+                      )
+                    RETURN 
+                      n.source_id as source_id,
+                      coalesce(n.name, n.account_name, n.company, n.first_name + ' ' + n.last_name) as name,
+                      labels(n)[0] as type,
+                      100 as score
+                    
+                    UNION
+                    
+                    // Fallback: Partial match if exact not found
+                    MATCH (n)
+                    WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
+                      AND (
+                        toLower(n.name) CONTAINS toLower($name)
+                        OR toLower(n.company) CONTAINS toLower($name)
+                        OR toLower(n.account_name) CONTAINS toLower($name)
+                      )
+                    RETURN 
+                      n.source_id as source_id,
+                      coalesce(n.name, n.account_name, n.company) as name,
+                      labels(n)[0] as type,
+                      50 as score
+                    
+                    ORDER BY score DESC
+                    LIMIT 3
+                    """
+                    
+                    result = await graph_store.query(
+                        cypher_query,
+                        parameters={"name": entity_name}
+                    )
+                    
+                    if result:
+                        logger.info(f"    ✅ Found {len(result)} matches for '{entity_name}'")
+                        for match in result:
+                            match["searched_name"] = entity_name
+                            all_matches.append(match)
+                    else:
+                        logger.warning(f"    ⚠️ No matches found for '{entity_name}'")
+                
+                entities = all_matches
+            else:
+                entities = []
             
             if entities:
                 logger.info(f"  ✅ Found {len(entities)} entity candidates in graph")
