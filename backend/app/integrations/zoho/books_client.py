@@ -225,10 +225,23 @@ class ZohoBooksClient:
         mapped_count = 0
         unmapped_count = 0
         
+        # DEBUG: Log first contact to see all available fields
+        if contacts:
+            logger.debug(f"    🔍 DEBUG: First contact fields: {list(contacts[0].keys())}")
+            logger.debug(f"    🔍 DEBUG: Sample contact: {contacts[0]}")
+        
         for contact in contacts:
             contact_id = contact.get("contact_id")
-            zcrm_account_id = contact.get("zcrm_account_id")
             contact_name = contact.get("contact_name", "Unknown")
+            
+            # Try multiple possible field names for CRM Account ID
+            zcrm_account_id = (
+                contact.get("zcrm_account_id") or
+                contact.get("crm_account_id") or
+                contact.get("account_id") or  # Might conflict with Books account_id!
+                contact.get("zcrm_account") or
+                None
+            )
             
             if contact_id:
                 if zcrm_account_id:
@@ -240,7 +253,9 @@ class ZohoBooksClient:
                     logger.debug(f"      ✅ Mapped: Books Contact {contact_id} ({contact_name}) → CRM Account {account_id}")
                 else:
                     unmapped_count += 1
-                    logger.debug(f"      ⚠️ No CRM mapping for Books Contact {contact_id} ({contact_name})")
+                    # Only log first few unmapped for debugging
+                    if unmapped_count <= 3:
+                        logger.debug(f"      ⚠️ No CRM mapping for Books Contact {contact_id} ({contact_name})")
         
         logger.info(f"    ✅ Mapping complete: {mapped_count} mapped, {unmapped_count} unmapped")
         
