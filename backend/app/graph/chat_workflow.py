@@ -105,6 +105,7 @@ async def router_node(state: AgentState) -> AgentState:
                 
                 # Parse JSON response
                 import json
+                import re
                 extracted_text = extraction_result.content.strip()
                 # Remove markdown code blocks if present
                 if extracted_text.startswith("```"):
@@ -112,6 +113,9 @@ async def router_node(state: AgentState) -> AgentState:
                     if extracted_text.startswith("json"):
                         extracted_text = extracted_text[4:]
                 extracted_text = extracted_text.strip()
+                
+                # Clean control characters that break JSON parsing
+                extracted_text = re.sub(r'[\x00-\x1F\x7F]', ' ', extracted_text)
                 
                 entity_names = json.loads(extracted_text)
                 
@@ -309,6 +313,7 @@ async def knowledge_node(state: AgentState) -> AgentState:
                 
                 # Parse JSON response
                 import json
+                import re
                 extracted_text = extraction_result.content.strip()
                 # Remove markdown code blocks if present
                 if extracted_text.startswith("```"):
@@ -316,6 +321,9 @@ async def knowledge_node(state: AgentState) -> AgentState:
                     if extracted_text.startswith("json"):
                         extracted_text = extracted_text[4:]
                 extracted_text = extracted_text.strip()
+                
+                # Clean control characters that break JSON parsing
+                extracted_text = re.sub(r'[\x00-\x1F\x7F]', ' ', extracted_text)
                 
                 entity_names = json.loads(extracted_text)
                 
@@ -395,14 +403,14 @@ async def knowledge_node(state: AgentState) -> AgentState:
                 
                 # Bester Match (höchster Score)
                 best_match = entities[0]
-                best_score = best_match.get("total_score", 0)
+                best_score = best_match.get("score", 0)  # FIXED: score statt total_score
                 best_name = best_match.get("name", "")
                 best_type = best_match.get("type", "")
                 best_id = best_match.get("source_id", "")
                 
                 # Log alle Kandidaten für Transparenz
                 for i, entity in enumerate(entities):
-                    score = entity.get("total_score", 0)
+                    score = entity.get("score", 0)  # FIXED: score statt total_score
                     name = entity.get("name", "")
                     entity_type = entity.get("type", "")
                     source_id = entity.get("source_id", "")

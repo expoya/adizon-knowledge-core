@@ -344,6 +344,11 @@ class MetadataService:
                 elif "```" in content:
                     content = content.split("```")[1].split("```")[0].strip()
                 
+                # Clean control characters that break JSON parsing
+                # Replace newlines, tabs, etc. within strings
+                import re
+                content = re.sub(r'[\x00-\x1F\x7F]', ' ', content)
+                
                 result = json.loads(content)
                 
                 reasoning = result.get("reasoning", "")

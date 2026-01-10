@@ -83,8 +83,8 @@ class GraphQueryService:
             Formatted string with graph context, or empty string if no results
         """
         try:
-            # Extract potential keywords from the question
-            keywords = self._extract_keywords(question)
+            # LLM-based keyword extraction (robust against special chars)
+            keywords = await self._extract_keywords(question)
             
             logger.info(f"Graph query keywords: {keywords}")
 
@@ -189,9 +189,9 @@ class GraphQueryService:
             logger.error(f"Graph summary failed: {e}")
             return ""
     
-    def _extract_keywords(self, question: str) -> List[str]:
+    async def _extract_keywords(self, question: str) -> List[str]:
         """
-        Extract keywords from question.
+        LLM-basierte Keyword-Extraktion (robust gegen Sonderzeichen).
         
         Args:
             question: Natural language question
@@ -199,19 +199,62 @@ class GraphQueryService:
         Returns:
             List of keywords
         """
-        # Extract capitalized words (proper nouns)
-        words = re.findall(r'\b[A-Z][a-zäöüß]+(?:\s+[A-Z][a-zäöüß]+)*\b', question)
-
-        # Also get some lowercase keywords (filter common words)
-        lowercase_words = re.findall(r'\b[a-zäöüß]{4,}\b', question.lower())
-        stopwords = {
-            "what", "when", "where", "which", "wer", "wie", "was", "wann", "welche",
-            "sind", "ist", "haben", "hat", "werden", "wird", "kann", "können",
-            "about", "from", "with", "this", "that", "there", "here", "alle", "über"
-        }
-        keywords = [w for w in lowercase_words if w not in stopwords]
-
-        return list(set(words + keywords))
+        try:
+            from app.core.llm import get_llm
+            from app.prompts import get_prompt
+            from langchain_core.messages import SystemMessage
+            import json
+            
+            llm = get_llm(temperature=0.0, streaming=False)
+            query_prompt = get_prompt("query_generation")
+            
+            logger.debug("  🤖 LLM extracting search keywords...")
+            
+            result = await llm.ainvoke([
+                SystemMessage(content=query_prompt.format(query=question))
+            ])
+            
+            # Parse JSON response
+            import re
+            content = result.content.strip()
+            
+            # Remove markdown code blocks if present
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+            content = content.strip()
+            
+            # Clean control characters that break JSON parsing
+            content = re.sub(r'[\x00-\x1F\x7F]', ' ', content)
+            
+            keywords = json.loads(content)
+            
+            if keywords:
+                logger.debug(f"  ✅ LLM extracted keywords: {keywords}")
+                return keywords
+            else:
+                logger.debug("  ℹ️ No keywords extracted, using fallback")
+                return self._fallback_keywords(question)
+                
+        except Exception as e:
+            logger.warning(f"  ⚠️ LLM keyword extraction failed: {e}")
+            return self._fallback_keywords(question)
+    
+    def _fallback_keywords(self, question: str) -> List[str]:
+        """
+        Einfacher Fallback: Extrahiere kapitalisierte Wörter (Namen).
+        
+        Args:
+            question: Natural language question
+            
+        Returns:
+            List of keywords
+        """
+        import re
+        # Nur kapitalisierte Wörter (Namen)
+        words = re.findall(r'\b[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)*\b', question)
+        return list(set(words)) if words else [""]
     
     async def _fetch_recent_entities(self):
         """Fetch recent entities when no keywords found."""
