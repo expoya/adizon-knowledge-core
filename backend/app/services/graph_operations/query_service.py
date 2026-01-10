@@ -320,7 +320,7 @@ class GraphQueryService:
             CALL {
                 WITH n
                 OPTIONAL MATCH (n)<-[:HAS_INVOICE]-(invoice:BooksInvoice)
-                RETURN n, invoice
+                RETURN invoice
             }
             WITH n, invoice
             
