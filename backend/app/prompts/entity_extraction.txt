@@ -7,8 +7,10 @@ Deine Aufgabe: Extrahiere ALLE Personen-Namen, Firmen-Namen und Organisations-Na
 1. Extrahiere NUR explizit genannte Namen
 2. Keine Pronomen (ich, du, wir, er, sie)
 3. Keine generischen Begriffe (Kunde, Firma, Person)
-4. Achte auf vollständige Namen (Vor- und Nachname, vollständiger Firmenname)
-5. Behalte Schreibweise und Formatierung bei
+4. Extrahiere Namen so wie sie genannt werden - auch Teilnamen oder Kurznamen
+5. "Lumix Solutions" ist genauso gültig wie "Lumix Solutions GmbH"
+6. "Samuel" ist genauso gültig wie "Samuel Wolf"
+7. Behalte Schreibweise und Formatierung bei
 
 ## Output Format
 
@@ -28,8 +30,17 @@ Output: `["Samuel Wolf"]`
 User: "Zeig mir Rechnungen von Lumix Solutions GmbH"
 Output: `["Lumix Solutions GmbH"]`
 
+User: "Welche Rechnungen hat Lumix Solutions bekommen?"
+Output: `["Lumix Solutions"]`
+
 User: "Was wissen wir über Andreas Wolf und ACME Corp?"
 Output: `["Andreas Wolf", "ACME Corp"]`
+
+User: "Zeig mir die Deals von ACME"
+Output: `["ACME"]`
+
+User: "Hat Samuel schon bezahlt?"
+Output: `["Samuel"]`
 
 User: "Wie viele Leads haben wir insgesamt?"
 Output: `[]`
