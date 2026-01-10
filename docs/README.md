@@ -40,6 +40,7 @@ Schritt-für-Schritt Anleitungen für spezifische Features:
 - **[ZOHO_BOOKS_SETUP.md](implementation-guides/ZOHO_BOOKS_SETUP.md)** - Zoho Books API Integration
 - **[ZOHO_FINANCE_EMAILS_RESEARCH.md](implementation-guides/ZOHO_FINANCE_EMAILS_RESEARCH.md)** - Invoices, Subscriptions & Emails
 - **[REST_API_MODULES.md](implementation-guides/REST_API_MODULES.md)** - REST API Support für Finance-Module
+- **[CRONJOB_SETUP.md](implementation-guides/CRONJOB_SETUP.md)** - Automatische CRM-Synchronisation (Cron Jobs)
 
 ---
 
@@ -103,5 +104,5 @@ Nicht mehr aktuelle Dokumentation (historisch):
 
 ---
 
-**Letzte Aktualisierung:** 2026-01-09  
+**Letzte Aktualisierung:** 2026-01-10  
 **Maintainer:** Adizon GmbH

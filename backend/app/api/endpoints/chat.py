@@ -167,7 +167,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         inputs = {
             "messages": messages,
             "intent": "general",  # Initial value, will be set by router
-            "sql_context": {},
+            "crm_target": "",  # Will be set by router if CRM entity found
             "tool_outputs": {},
         }
         

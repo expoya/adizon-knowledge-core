@@ -1,17 +1,565 @@
-# ERP/SQL Datenquellen sind DEAKTIVIERT
-# Alle Geschäftsdaten (inkl. Rechnungen) sind im CRM (Zoho Books) verfügbar!
+# ==========================================
+# Source Catalog - Phase 2
+# Definiert ALLE verfügbaren Datenquellen
+# ==========================================
 # 
-# HINWEIS: Rechnungen werden über Zoho Books API synchronisiert
-# und sind im Neo4j Knowledge Graph als BooksInvoices Nodes verfügbar.
-# Nutze das CRM Tool (get_crm_facts) oder Knowledge Tool (search_knowledge_base)
-# um auf Rechnungsdaten zuzugreifen.
+# Jede Source beschreibt:
+# - id: Eindeutige ID
+# - type: vector_graph | crm | sql
+# - description: Was enthält diese Source?
+# - status: active | optional
+# - tool: Welches Tool wird genutzt?
+# - priority: Niedrig = höher (1 = erste Wahl)
+# - requires_entity_id: Braucht die Source eine ID aus dem Graph?
+# - capabilities: Was kann die Source?
+# - keywords: Wörter die auf diese Source hindeuten
+# - modules/tables: Details zu verfügbaren Daten
 
-# sources:
-#   - id: "erp_postgres"
-#     type: "sql"
-#     description: "DEAKTIVIERT - Keine ERP-Datenbank vorhanden"
-#     connection_env: "ERP_DATABASE_URL"
-#     tables:
-#       - name: "invoices"
-#         description: "Rechnungen sind im CRM (Zoho Books) verfügbar"
+sources:
+  # ==========================================
+  # Knowledge Base (Vector + Graph)
+  # Primary source - always available
+  # Der Graph ist der "Glue" zwischen allen Quellen!
+  # ==========================================
+  - id: "knowledge_base"
+    type: "vector_graph"
+    description: "Interne Wissensdatenbank - Dokumente, Prozesse, und Knowledge Graph mit 54K+ Entities"
+    status: "active"
+    tool: "search_knowledge_base"
+    priority: 1  # Immer zuerst prüfen
+    requires_entity_id: false
+    capabilities:
+      - "semantic_search"       # Vector Store für Dokument-Suche
+      - "entity_resolution"     # Graph findet Entities und IDs
+      - "relationship_discovery" # Graph zeigt Zusammenhänge
+      - "context_linking"       # Verknüpft unstructured mit structured
+      - "historical_data"       # Alle CRM-Daten historisch im Graph
+    graph_entities:
+      # Tatsächliche Node-Types im Knowledge Graph (mit Count)
+      - type: "Lead"
+        count: 5511
+        description: "Leads mit umfangreichen Details zu Kampagnen, Herkunft, Stage, etc."
+        relationships: ["HAS_OWNER", "HAS_NOTE", "HAS_DOCUMENTS", "HAS_EVENT", "HAS_TASK", "HAS_OBJECTION", "HAS_DEAL"]
+        keywords:
+          - "lead"
+          - "leads"
+          - "interessent"
+          - "interessenten"
+          - "potentialkunde"
+          - "lead-kampagne"
+          - "lead-stage"
+          - "akquise"
+          
+      - type: "Account"
+        count: 992
+        description: "Kunden mit sehr umfangreichen, ergiebigen CRM-Datensätzen"
+        relationships: ["HAS_OWNER", "HAS_NOTE", "HAS_DOCUMENTS", "HAS_EVENT", "HAS_TASK", "HAS_DEAL", "HAS_INVOICE"]
+        keywords:
+          - "kunde"
+          - "kunden"
+          - "firma"
+          - "unternehmen"
+          - "account"
+          - "organisation"
+          - "company"
+          - "customer"
+          
+      - type: "Contact"
+        count: 1309
+        description: "Kontakte/Ansprechpartner verbunden mit Kunden"
+        relationships: ["WORKS_AT", "ASSOCIATED_WITH"]
+        keywords:
+          - "kontakt"
+          - "kontakte"
+          - "person"
+          - "ansprechpartner"
+          - "mitarbeiter"
+          - "contact"
+          
+      - type: "Deal"
+        count: 7033
+        description: "Abschlüsse - verbunden mit Leads (wenn open) oder Kunden (wenn closed)"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "deal"
+          - "deals"
+          - "geschäft"
+          - "verkauf"
+          - "angebot"
+          - "opportunity"
+          - "pipeline"
+          - "abschluss"
+          
+      - type: "Note"
+        count: 24321
+        description: "Notizen zu Leads oder Kunden - größte Entity im Graph!"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "notiz"
+          - "notizen"
+          - "note"
+          - "notes"
+          - "kommentar"
+          - "bemerkung"
+          - "anmerkung"
+          
+      - type: "Attachment"
+        count: 7075
+        description: "Dateianhänge zu Leads/Kunden - oft Verträge oder Kick-off Protokolle"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "dokument"
+          - "anhang"
+          - "attachment"
+          - "datei"
+          - "vertrag"
+          - "protokoll"
+          - "upload"
+          
+      - type: "CalendlyEvent"
+        count: 6403
+        description: "Sales-Termine und Meetings"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "termin"
+          - "termine"
+          - "meeting"
+          - "event"
+          - "calendly"
+          - "call"
+          - "demo"
+          - "besprechung"
+          
+      - type: "Task"
+        count: 4414
+        description: "Aufgaben verbunden mit Leads oder Kunden"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "task"
+          - "aufgabe"
+          - "aufgaben"
+          - "todo"
+          - "aktivität"
+          - "aktion"
+          
+      - type: "Einwand"
+        count: 1066
+        description: "Einwände und Bedenken aus Sales-Gesprächen"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "einwand"
+          - "einwände"
+          - "bedenken"
+          - "hindernis"
+          - "objection"
+          - "problem"
+          - "zweifel"
+          
+      - type: "BooksInvoice"
+        count: 600
+        description: "Rechnungen mit Zahlungsstatus - im Graph UND live in Zoho Books"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "rechnung"
+          - "rechnungen"
+          - "invoice"
+          - "zahlung"
+          - "zahlungsstatus"
+          - "bezahlt"
+          - "offen"
+          - "überfällig"
+          - "faktura"
+          
+      - type: "User"
+        count: 16
+        description: "CRM Users = Mitarbeiter"
+        relationships: ["HAS_OWNER"]
+        keywords:
+          - "user"
+          - "benutzer"
+          - "mitarbeiter"
+          - "team"
+          - "kollege"
+          - "verkäufer"
+          - "sales rep"
+    keywords:
+      # Generelle Keywords für Wissensdatenbank
+      - "dokument"
+      - "handbuch"
+      - "anleitung"
+      - "manual"
+      - "prozess"
+      - "workflow"
+      - "ablauf"
+      - "konzept"
+      - "erklärung"
+      - "policy"
+      - "richtlinie"
+      - "preise"
+      - "pricing"
+      - "tarif"
+      - "kosten"
+    note: "Der Graph ist die zentrale 'Glue'-Schicht mit 54K+ Entities und 74K+ Relationships!"
+    
+  # ==========================================
+  # CRM Source - Zoho CRM
+  # Requires entity_id from Graph!
+  # ==========================================
+  - id: "zoho_crm"
+    type: "crm"
+    description: "Zoho CRM - LIVE Daten zu Kunden, Leads, Deals, Kontakte, Aktivitäten"
+    status: "active"
+    tool: "get_crm_facts"
+    priority: 2
+    requires_entity_id: true  # WICHTIG: Braucht zoho_* ID aus Graph!
+    capabilities:
+      - "live_data"           # Echtzeit CRM-Daten (aktueller als Graph)
+      - "deal_status"         # Deal-Informationen
+      - "contact_info"        # Kontaktdaten
+      - "activity_history"    # Meeting, Calls, etc.
+      - "objection_tracking"  # Einwände
+      - "lead_details"        # Umfangreiche Lead-Details (Kampagnen, Stage, Herkunft)
+      - "account_details"     # Umfangreiche Kunden-Details
+    modules:
+      - name: "Leads"
+        entity_type: "Lead"  # Exakt wie im Graph!
+        graph_count: 5511
+        keywords: 
+          - "lead"
+          - "leads"
+          - "interessent"
+          - "potentialkunde"
+          - "lead-kampagne"
+          - "lead-stage"
+          - "akquise"
+        note: "Sehr ergiebige Records! Bei unklaren Fragen zu Leads → CRM abfragen!"
+        
+      - name: "Accounts"
+        entity_type: "Account"  # Exakt wie im Graph!
+        graph_count: 992
+        keywords: 
+          - "kunde"
+          - "kunden"
+          - "firma"
+          - "unternehmen"
+          - "account"
+          - "organisation"
+          - "company"
+          - "customer"
+        note: "Sehr ergiebige Records! Bei unklaren Fragen zu Kunden → CRM abfragen!"
+        
+      - name: "Contacts"
+        entity_type: "Contact"  # Exakt wie im Graph!
+        graph_count: 1309
+        keywords:
+          - "kontakt"
+          - "kontakte"
+          - "person"
+          - "ansprechpartner"
+          - "mitarbeiter"
+          - "contact"
+          
+      - name: "Deals"
+        entity_type: "Deal"  # Exakt wie im Graph!
+        graph_count: 7033
+        keywords:
+          - "deal"
+          - "deals"
+          - "geschäft"
+          - "verkauf"
+          - "angebot"
+          - "opportunity"
+          - "pipeline"
+          - "abschluss"
+          
+      - name: "Notes"
+        entity_type: "Note"  # Exakt wie im Graph!
+        graph_count: 24321
+        keywords:
+          - "notiz"
+          - "notizen"
+          - "note"
+          - "kommentar"
+          - "bemerkung"
+          
+      - name: "Tasks"
+        entity_type: "Task"  # Exakt wie im Graph!
+        graph_count: 4414
+        keywords:
+          - "task"
+          - "aufgabe"
+          - "aufgaben"
+          - "todo"
+          - "aktivität"
+          
+      - name: "Objections"
+        entity_type: "Einwand"  # Exakt wie im Graph!
+        graph_count: 1066
+        keywords:
+          - "einwand"
+          - "einwände"
+          - "bedenken"
+          - "hindernis"
+          - "objection"
+          - "problem"
+          - "zweifel"
+          
+      - name: "Events"
+        entity_type: "CalendlyEvent"  # Exakt wie im Graph!
+        graph_count: 6403
+        keywords:
+          - "termin"
+          - "termine"
+          - "meeting"
+          - "event"
+          - "calendly"
+          - "call"
+          - "demo"
+          - "besprechung"
+    note: "Graph liefert die source_id (zoho_xxx) für Live-Abfragen! Alle Entities im Graph + Live-Updates via CRM!"
+    
+  # ==========================================
+  # CRM Source - Zoho Books (Finance)
+  # Requires entity_id from Graph!
+  # ==========================================
+  - id: "zoho_books"
+    type: "crm"
+    description: "Zoho Books - LIVE Rechnungen, Zahlungen, Finanzen, Subscriptions"
+    status: "active"
+    tool: "get_crm_facts"
+    priority: 2
+    requires_entity_id: true
+    capabilities:
+      - "live_data"           # Aktueller Zahlungsstatus
+      - "invoice_status"      # Bezahlt, Offen, Überfällig
+      - "payment_history"     # Zahlungshistorie
+      - "financial_data"      # Finanzielle Details
+      - "subscription_management"
+    modules:
+      - name: "Invoices"
+        entity_type: "BooksInvoice"  # Exakt wie im Graph!
+        graph_count: 600
+        keywords:
+          - "rechnung"
+          - "rechnungen"
+          - "invoice"
+          - "invoices"
+          - "faktura"
+          - "billing"
+          - "zahlung"
+          - "zahlungsstatus"
+          - "bezahlt"
+          - "offen"
+          - "überfällig"
+        note: "BooksInvoice Nodes im Graph (historisch) + Live-Status via Zoho Books API"
+          
+      - name: "Payments"
+        entity_type: "BooksPayment"
+        keywords:
+          - "zahlung"
+          - "zahlungen"
+          - "payment"
+          - "bezahlung"
+          - "überweisung"
+          - "transaktion"
+          
+      - name: "Subscriptions"
+        entity_type: "BooksSubscription"
+        keywords:
+          - "abo"
+          - "abonnement"
+          - "subscription"
+          - "vertrag"
+          - "membership"
+          - "recurring"
+          
+      - name: "CreditNotes"
+        entity_type: "BooksCreditNote"
+        keywords:
+          - "gutschrift"
+          - "credit note"
+          - "rückerstattung"
+    note: "Graph hat 600 BooksInvoice Nodes (historisch) + Zoho Books liefert Live-Status!"
+    
+  # ==========================================
+  # SQL Sources (Optional - für IoT/Sensoren)
+  # ==========================================
+  - id: "iot_database"
+    type: "sql"
+    description: "IoT Sensor-Daten von Maschinen und Equipment"
+    status: "optional"  # Nur wenn IOT_DATABASE_URL gesetzt
+    connection_env: "IOT_DATABASE_URL"
+    tool: "execute_sql_query"
+    priority: 3
+    requires_entity_id: true  # Equipment-ID aus Graph (z.B. iot_42)
+    capabilities:
+      - "real_time_metrics"
+      - "historical_data"
+      - "sensor_readings"
+      - "time_series_analysis"
+    tables:
+      - name: "machine_sensors"
+        description: "Echtzeit-Sensordaten von Maschinen"
+        keywords:
+          - "temperatur"
+          - "temperature"
+          - "sensor"
+          - "maschine"
+          - "machine"
+          - "equipment"
+          - "druck"
+          - "pressure"
+          - "status"
+        columns:
+          - machine_id      # Kommt aus Graph!
+          - temperature
+          - pressure
+          - humidity
+          - vibration
+          - status
+          - timestamp
+          
+      - name: "maintenance_logs"
+        description: "Wartungsprotokolle und Service-Historie"
+        keywords:
+          - "wartung"
+          - "maintenance"
+          - "service"
+          - "reparatur"
+          - "repair"
+          - "downtime"
+        columns:
+          - machine_id      # Kommt aus Graph!
+          - maintenance_type
+          - technician
+          - duration
+          - notes
+          - timestamp
+          
+      - name: "production_metrics"
+        description: "Produktionsmetriken und Auslastung"
+        keywords:
+          - "produktion"
+          - "production"
+          - "output"
+          - "auslastung"
+          - "utilization"
+          - "efficiency"
+        columns:
+          - machine_id      # Kommt aus Graph!
+          - units_produced
+          - runtime_hours
+          - efficiency_percent
+          - downtime_minutes
+          - date
+    note: "IoT-IDs kommen aus dem Graph (EQUIPMENT Nodes mit source_id='iot_xxx')"
 
+# ==========================================
+# Source Selection Strategy
+# ==========================================
+selection_strategy:
+  # 1. Catalog-first: MetadataService identifiziert relevante Sources (mit LLM)
+  catalog_first: true
+  
+  # 2. Graph nur wenn requires_entity_id = true
+  conditional_graph_query: true
+  
+  # 3. Vector Search bei unklaren/konzeptuellen Fragen
+  default_fallback: "knowledge_base"
+  
+  # 4. Kombiniere Quellen wenn mehrere Match (parallel execution)
+  combine_sources: true
+  
+  # 5. CRM & SQL nur wenn Entity im Graph gefunden
+  crm_requires_graph_entity: true
+  sql_requires_graph_entity: true
+  
+  # 6. Minimum Score für Source-Match (bei Keyword-basiertem Fallback)
+  min_relevance_score: 0.3
+  
+  # 7. Maximum Anzahl paralleler Sources
+  max_parallel_sources: 3
+  
+  # 8. Graph Relationships für Context
+  # Der Graph zeigt via Relationships wie Entities verbunden sind:
+  # - HAS_OWNER (37K): Welcher User "besitzt" Lead/Account/Deal/etc
+  # - HAS_NOTE (21K): Notizen zu Leads/Accounts
+  # - HAS_DOCUMENTS (5K): Attachments zu Leads/Accounts
+  # - HAS_EVENT (4K): CalendlyEvents zu Leads/Accounts
+  # - HAS_TASK (4K): Tasks zu Leads/Accounts
+  # - HAS_OBJECTION (799): Einwände zu Leads
+  # - WORKS_AT (796): Contacts arbeiten bei Accounts
+  # - ASSOCIATED_WITH (430): Contact-zu-Lead Verbindungen
+  # - HAS_DEAL (299): Deals verbunden mit Accounts
+  # - HAS_INVOICE (1): Invoices verbunden mit Accounts
+
+# ==========================================
+# Beispiel-Queries und erwartete Sources
+# ==========================================
+examples:
+  - query: "Was ist unsere Preispolitik?"
+    expected_sources:
+      - knowledge_base  # Vector Search in Dokumenten
+    expected_flow: "Catalog → knowledge_base → Vector Search"
+    reasoning: "Konzeptuelle Frage → nur Dokumente nötig, kein Graph/CRM"
+    
+  - query: "Was ist der Status von ACME Corp?"
+    expected_sources:
+      - knowledge_base  # Graph findet Account Entity
+      - zoho_crm       # Live CRM-Daten via zoho_xxx
+    expected_flow: "Catalog → zoho_crm (requires_entity_id=true) → Graph Query → Account(ACME) gefunden → CRM Tool"
+    reasoning: "LLM erkennt 'Status' + 'ACME Corp' → zoho_crm ausgewählt → Graph findet Account(name='ACME Corp', source_id='zoho_456') → get_crm_facts(zoho_456)"
+    
+  - query: "Welche Einwände hat Lead XYZ geäußert?"
+    expected_sources:
+      - knowledge_base  # Graph zeigt Einwände via HAS_OBJECTION
+      - zoho_crm       # Live Details zu Einwänden
+    expected_flow: "Catalog → zoho_crm → Graph Query → Lead gefunden → Graph traversiert HAS_OBJECTION → CRM Tool für Live-Details"
+    reasoning: "Graph hat 1066 Einwand Nodes verbunden mit Leads via HAS_OBJECTION Relationship"
+    
+  - query: "Hat Kunde ACME Corp offene Rechnungen?"
+    expected_sources:
+      - knowledge_base  # Graph zeigt BooksInvoice Nodes
+      - zoho_books     # Live Zahlungsstatus
+    expected_flow: "Catalog → zoho_books → Graph Query → Account(ACME) + HAS_INVOICE Relationship → BooksInvoice Nodes → Live-Status via Zoho Books API"
+    reasoning: "Graph hat 600 BooksInvoice Nodes (historisch), Zoho Books liefert aktuellen Zahlungsstatus (bezahlt/offen/überfällig)"
+    
+  - query: "Zeig mir alle Notizen zu Lead ABC"
+    expected_sources:
+      - knowledge_base  # Graph hat 24K+ Note Nodes
+      - zoho_crm       # Optional: Live CRM für neueste Notes
+    expected_flow: "Catalog → knowledge_base → Graph Query → Lead(ABC) → HAS_NOTE Relationship → Note Nodes"
+    reasoning: "Graph hat 24K Note Nodes (größte Entity!), verbunden via HAS_NOTE (21K Relationships)"
+    
+  - query: "Wann war das letzte Meeting mit ACME?"
+    expected_sources:
+      - knowledge_base  # Graph hat CalendlyEvent Nodes
+      - zoho_crm       # Optional: Live Event-Details
+    expected_flow: "Catalog → knowledge_base → Graph Query → Account(ACME) → HAS_EVENT Relationship → CalendlyEvent Nodes (sortiert nach Datum)"
+    reasoning: "Graph hat 6403 CalendlyEvent Nodes, verbunden via HAS_EVENT"
+    
+  - query: "Wie ist die Temperatur von Hochdrucklader #42?"
+    expected_sources:
+      - knowledge_base  # Handbuch für Grenzwerte
+      - iot_database   # Live Sensordaten via iot_42
+    expected_flow: "Catalog → iot_database → Graph Query → Equipment(Hochdrucklader) gefunden → SQL Tool für Sensordaten + Vector Search für Handbuch"
+    reasoning: "IoT-Frage → Graph findet EQUIPMENT mit source_id='iot_42' → execute_sql_query + search_knowledge_base parallel"
+    
+  - query: "Wie funktioniert der Onboarding-Prozess?"
+    expected_sources:
+      - knowledge_base  # Prozess-Dokumente
+    expected_flow: "Catalog → knowledge_base → Vector Search (kein Graph nötig)"
+    reasoning: "Reine Wissens-Frage → nur Vector Search, kein Entity Resolution nötig"
+    
+  - query: "Welche Aufgaben sind für Lead XYZ offen?"
+    expected_sources:
+      - knowledge_base  # Graph hat Task Nodes
+      - zoho_crm       # Live Task-Status
+    expected_flow: "Catalog → zoho_crm → Graph Query → Lead(XYZ) → HAS_TASK Relationship → Task Nodes"
+    reasoning: "Graph hat 4414 Task Nodes, verbunden via HAS_TASK"
+    
+  - query: "Was sagt der Vertrag von Kunde ACME?"
+    expected_sources:
+      - knowledge_base  # Graph hat Attachment Nodes (Verträge)
+    expected_flow: "Catalog → knowledge_base → Graph Query → Account(ACME) → HAS_DOCUMENTS Relationship → Attachment Nodes (filter: 'Vertrag') → Vector Search in Attachment Content"
+    reasoning: "Graph hat 7075 Attachment Nodes (oft Verträge, Kick-off Protokolle)"

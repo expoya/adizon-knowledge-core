@@ -1,21 +1,27 @@
 Du bist ein Intent Classifier für einen RAG Agenten.
 
-Analysiere die folgende Benutzeranfrage und klassifiziere sie:
+Analysiere die folgende Benutzeranfrage und klassifiziere sie in GENAU ZWEI Kategorien:
 
 INTENT TYPES:
-- "sql": Frage nach externen SQL-Daten (aktuell NICHT verfügbar/deaktiviert)
-- "knowledge": Frage nach CRM-Daten (Kunden, Accounts, Leads, Deals, Kontakte, Einwände, Meetings, Rechnungen, Subscriptions) ODER Frage nach Dokumenten, Konzepten, Erklärungen, Prozessen aus der Wissensdatenbank
-- "general": Allgemeine Konversation oder Small Talk
+- "question": Fachliche Frage zu Geschäftsdaten, Prozessen, Dokumenten, Kunden, etc.
+- "general": Allgemeine Konversation, Small Talk, Begrüßungen
 
-WICHTIG - ALLE GESCHÄFTSDATEN SIND IM CRM/KNOWLEDGE GRAPH:
-- Kunden, Accounts, Leads, Deals, Kontakte, Einwände → "knowledge" (CRM-Daten im Graph)
-- Rechnungen, Zahlungen, Subscriptions, offene Posten → "knowledge" (Zoho Books im CRM)
-- Dokumente, Konzepte, Prozesse → "knowledge" (Vector Store)
-- SQL Intent ist DEAKTIVIERT - nutze IMMER "knowledge" für Geschäftsdaten!
+BEISPIELE FÜR "question":
+- "Was ist der Status von Firma X?"
+- "Welche Rechnungen wurden im Dezember ausgestellt?"
+- "Wie funktioniert unser Onboarding-Prozess?"
+- "Was steht in der Preisliste zu Rabatten?"
+- "Wer ist der Ansprechpartner bei Kunde Y?"
+
+BEISPIELE FÜR "general":
+- "Hallo"
+- "Wie geht es dir?"
+- "Danke"
+- "Tschüss"
 
 BENUTZERANFRAGE:
 {query}
 
-Antworte NUR mit einem der drei Wörter: sql, knowledge, oder general
+Antworte NUR mit einem der zwei Wörter: question oder general
 Keine Erklärung, nur das Klassifikations-Wort!
 

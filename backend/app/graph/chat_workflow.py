@@ -1,21 +1,17 @@
 """
-LangGraph Chat Workflow für Agentic RAG.
-Kombiniert Knowledge Base Search und SQL Query Execution.
+LangGraph Chat Workflow für Agentic RAG (Phase 1 - Simplified).
+Knowledge Orchestrator mit optionalem CRM Access.
 """
 
-import json
 import logging
-import re
-from typing import Any, Dict, List, TypedDict
+from typing import List, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
 from app.core.llm import get_llm
-from app.services.metadata_store import metadata_service
 from app.services.graph_store import get_graph_store_service
 from app.tools.knowledge import search_knowledge_base
-from app.tools.sql import execute_sql_query, get_sql_schema
 from app.tools.crm import get_crm_facts
 from app.prompts import get_prompt
 
@@ -26,16 +22,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions
 # =============================================================================
 
-def _get_next_node_name(intent: str) -> str:
-    """Helper: Get next node name for debug logging."""
-    if intent == "sql":
-        return "sql_node"
-    elif intent == "knowledge":
-        return "knowledge_node"
-    elif intent == "crm":
-        return "crm_node"
-    else:
-        return "knowledge_node (fallback)"
+# Helper function removed - no longer needed after simplification
 
 
 # =============================================================================
@@ -45,10 +32,9 @@ def _get_next_node_name(intent: str) -> str:
 class AgentState(TypedDict):
     """State für den Chat Agenten."""
     messages: List[AnyMessage]
-    intent: str  # "general", "sql", "knowledge", "hybrid", "crm"
-    sql_context: Dict[str, Any]  # {"source_id": "...", "table_names": [...]}
+    intent: str  # "question", "general"
     crm_target: str  # Entity ID für CRM-Abfrage (z.B. "zoho_123456")
-    tool_outputs: Dict[str, str]  # {"sql_result": "...", "knowledge_result": "...", "crm_result": "..."}
+    tool_outputs: Dict[str, str]  # {"knowledge_result": "...", "crm_result": "..."}
 
 
 # =============================================================================
@@ -57,14 +43,15 @@ class AgentState(TypedDict):
 
 async def router_node(state: AgentState) -> AgentState:
     """
-    Router Node: Klassifiziert die User-Query und entscheidet über den Workflow.
+    Router Node: Vereinfachte Intent Classification.
     
-    Prüft:
-    1. Ob die Query nach strukturierten Daten (SQL) klingt
-    2. Ob relevante Tabellen im MetadataService gefunden werden
-    3. Setzt intent entsprechend: "sql", "knowledge", oder "hybrid"
+    Entscheidet nur noch zwischen:
+    - "question": Fachliche Frage → Knowledge Orchestrator
+    - "general": Small Talk → Direkt zum Generator
+    
+    Optional: Sucht nach CRM-Entities im Graph für Live-Daten.
     """
-    logger.info("🔀 Router Node: Analyzing user intent")
+    logger.info("🔀 Router Node: Simple intent classification")
     
     # Hole letzte User-Nachricht
     user_message = None
@@ -75,17 +62,13 @@ async def router_node(state: AgentState) -> AgentState:
     
     if not user_message:
         logger.warning("⚠️ No user message found in state")
-        state["intent"] = "knowledge"
+        state["intent"] = "general"
         return state
     
-    # STRICT DEBUG LOGGING
     logger.info(f"[ROUTER] User Query: {user_message}")
-    logger.debug(f"Analyzing query: {user_message[:100]}...")
     
-    # Verwende LLM für Intent Classification
+    # Verwende LLM für Intent Classification (vereinfacht: nur 2 Intents)
     llm = get_llm(temperature=0.0, streaming=False)
-    
-    # Lade Intent Classification Prompt aus File
     classification_prompt = get_prompt("intent_classification")
     
     try:
@@ -94,84 +77,34 @@ async def router_node(state: AgentState) -> AgentState:
         ])
         intent_raw = classification_result.content.strip().lower()
         
-        # Extrahiere Intent
-        if "sql" in intent_raw:
-            initial_intent = "sql"
-        elif "knowledge" in intent_raw:
-            initial_intent = "knowledge"
+        # Normalisiere Intent
+        if "question" in intent_raw or "frage" in intent_raw:
+            state["intent"] = "question"
         else:
-            initial_intent = "general"
+            state["intent"] = "general"
         
-        # STRICT DEBUG LOGGING
-        logger.info(f"[ROUTER] LLM Classification Result: '{intent_raw}' → Intent: '{initial_intent}'")
+        logger.info(f"[ROUTER] Intent: '{state['intent']}'")
         
     except Exception as e:
         logger.error(f"❌ Intent classification failed: {e}")
-        initial_intent = "knowledge"  # Fallback
+        state["intent"] = "question"  # Fallback zu question (besser als general)
     
-    # Wenn SQL Intent: Prüfe ob relevante Tabellen existieren
-    if initial_intent == "sql":
-        try:
-            metadata_svc = metadata_service()
-            relevant_tables_info = metadata_svc.get_relevant_tables(user_message)
-            
-            logger.debug(f"Metadata search result: {relevant_tables_info[:200]}...")
-            
-            # Prüfe ob Tabellen gefunden wurden
-            if "Keine relevanten Tabellen" not in relevant_tables_info:
-                # Parse die Tabellen-Info (primitive Extraktion)
-                # Format: "1. Quelle: erp_postgres ... Tabelle: invoices ..."
-                source_ids = re.findall(r'Quelle: (\w+)', relevant_tables_info)
-                table_names = re.findall(r'Tabelle: (\w+)', relevant_tables_info)
-                
-                if source_ids and table_names:
-                    state["sql_context"] = {
-                        "source_id": source_ids[0],  # Nehme erste Source
-                        "table_names": table_names,
-                        "metadata_info": relevant_tables_info
-                    }
-                    state["intent"] = "sql"
-                    logger.info(f"✅ SQL intent confirmed. Tables: {table_names}, Source: {source_ids[0]}")
-                else:
-                    # Keine konkreten Tabellen gefunden, falle zurück
-                    state["intent"] = "knowledge"
-                    logger.info("⚠️ No specific tables found, falling back to knowledge")
-            else:
-                # Keine relevanten Tabellen
-                state["intent"] = "knowledge"
-                logger.info("⚠️ No relevant tables found, falling back to knowledge")
-                
-        except Exception as e:
-            logger.error(f"❌ Metadata search failed: {e}")
-            state["intent"] = "knowledge"
-    else:
-        # Knowledge oder General Intent
-        state["intent"] = initial_intent
-    
-    # STRICT DEBUG LOGGING - Final Intent
-    logger.info(f"[ROUTER] ✅ Final Intent Decision: '{state['intent']}'")
-    logger.info(f"[ROUTER] Next Node: {_get_next_node_name(state['intent'])}")
-    
-    # CRM-Check: Suche nach Entities mit CRM-ID im Graph
-    # Wenn eine spezifische Person/Firma erwähnt wird, holen wir Live-Facts
-    if state["intent"] in ["knowledge", "general"]:
+    # Bei Fragen: Suche optional nach CRM-Entities im Graph
+    if state["intent"] == "question":
         try:
             logger.info("🔍 Checking for CRM entities in query...")
             
-            # Suche im Graph nach Entities mit source_id
             graph_store = get_graph_store_service()
             
-            # Cypher Query: Suche nach Nodes mit source_id die mit "zoho_" beginnen
-            # und deren Name in der Query erwähnt wird
+            # Cypher Query: Suche nach Nodes mit source_id (CRM oder IoT)
             cypher_query = """
             MATCH (n)
-            WHERE n.source_id STARTS WITH 'zoho_'
+            WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
             AND toLower($query) CONTAINS toLower(n.name)
             RETURN n.source_id as source_id, n.name as name, labels(n)[0] as type
             LIMIT 1
             """
             
-            # Führe Query aus mit der query() Methode
             result = await graph_store.query(
                 cypher_query,
                 parameters={"query": user_message}
@@ -184,112 +117,40 @@ async def router_node(state: AgentState) -> AgentState:
                 entity_type = record.get("type")
                 
                 if source_id:
-                    logger.info(f"✅ Found CRM entity: {entity_name} ({entity_type}) with ID: {source_id}")
+                    logger.info(f"✅ Found entity: {entity_name} ({entity_type}) with ID: {source_id}")
                     state["crm_target"] = source_id
-                    state["intent"] = "crm"  # Override intent für CRM-Pfad
                 else:
-                    logger.debug("  ℹ️ No CRM entities found in query")
+                    logger.debug("  ℹ️ No entities with source_id found")
             else:
-                logger.debug("  ℹ️ No CRM entities found in query")
+                logger.debug("  ℹ️ No entities found in query")
                 
         except Exception as e:
-            logger.warning(f"⚠️ CRM entity search failed: {e}")
+            logger.warning(f"⚠️ Entity search failed: {e}")
             # Continue without CRM - non-fatal error
     
     return state
 
 
-async def sql_node(state: AgentState) -> AgentState:
-    """
-    SQL Node: Generiert und führt SQL Query basierend auf User-Frage aus.
-    """
-    logger.info("[SQL_NODE] 🗄️ Executing SQL Node")
-    logger.info("[SQL_NODE] Tool: execute_sql_query & get_sql_schema")
-    
-    # Hole SQL Context
-    sql_context = state.get("sql_context", {})
-    source_id = sql_context.get("source_id")
-    table_names = sql_context.get("table_names", [])
-    
-    if not source_id or not table_names:
-        error_msg = "Error: Keine SQL-Kontext-Informationen verfügbar."
-        logger.error(f"❌ {error_msg}")
-        state["tool_outputs"]["sql_result"] = error_msg
-        return state
-    
-    # Hole User Query
-    user_message = None
-    for msg in reversed(state["messages"]):
-        if isinstance(msg, HumanMessage):
-            user_message = msg.content
-            break
-    
-    if not user_message:
-        state["tool_outputs"]["sql_result"] = "Error: Keine User-Query gefunden."
-        return state
-    
-    try:
-        # Schritt 1: Hole detailliertes Schema
-        logger.info(f"📋 Getting schema for tables: {table_names}")
-        schema_info = get_sql_schema.invoke({
-            "source_id": source_id,
-            "table_names": table_names
-        })
-        
-        logger.debug(f"Schema info: {schema_info[:500]}...")
-        
-        # Schritt 2: Generiere SQL Query mit LLM
-        llm = get_llm(temperature=0.0, streaming=False)
-        
-        # Lade SQL Generation Prompt aus File
-        sql_generation_prompt = get_prompt("sql_generation")
-        
-        sql_response = await llm.ainvoke([
-            SystemMessage(content=sql_generation_prompt.format(
-                schema=schema_info,
-                query=user_message
-            ))
-        ])
-        
-        # Extrahiere SQL Query aus der Antwort
-        sql_query_raw = sql_response.content.strip()
-        
-        # Säubere die Query (entferne Markdown Code Blocks etc.)
-        sql_query = re.sub(r'```sql\s*', '', sql_query_raw)
-        sql_query = re.sub(r'```\s*', '', sql_query)
-        sql_query = sql_query.strip()
-        
-        logger.info(f"🔍 Generated SQL: {sql_query[:200]}...")
-        
-        # Schritt 3: Führe SQL Query aus
-        logger.info("⚡ Executing SQL query...")
-        sql_result = execute_sql_query.invoke({
-            "query": sql_query,
-            "source_id": source_id
-        })
-        
-        # Speichere Ergebnis
-        state["tool_outputs"]["sql_result"] = f"SQL Query:\n{sql_query}\n\nErgebnis:\n{sql_result}"
-        
-        if "Error" in sql_result:
-            logger.warning(f"⚠️ SQL execution had errors: {sql_result[:200]}")
-        else:
-            logger.info("✅ SQL query executed successfully")
-        
-    except Exception as e:
-        error_msg = f"Error in SQL processing: {str(e)}"
-        logger.error(f"❌ {error_msg}", exc_info=True)
-        state["tool_outputs"]["sql_result"] = error_msg
-    
-    return state
+# =============================================================================
+# SQL Node - REMOVED (Phase 1 Cleanup)
+# SQL functionality will be integrated into Knowledge Orchestrator in Phase 3
+# =============================================================================
 
 
 async def knowledge_node(state: AgentState) -> AgentState:
     """
-    Knowledge Node: Durchsucht die interne Wissensdatenbank.
+    Smart Knowledge Orchestrator (Phase 3).
+    
+    Flow:
+    1. LLM Source Discovery (welche Quellen sind relevant?)
+    2. Check requires_entity_id (brauchen wir Entity IDs?)
+    3. IF needed: Graph Query (Entity Resolution)
+    4. Execute Tools parallel für alle relevanten Sources
+    5. Combine Results
+    
+    Der Catalog entscheidet was abgefragt wird - nicht mehr der Graph!
     """
-    logger.info("[KNOWLEDGE_NODE] 📚 Executing Knowledge Node")
-    logger.info("[KNOWLEDGE_NODE] Tool: search_knowledge_base (Vector + Graph)")
+    logger.info("🧠 [SMART ORCHESTRATOR] Phase 3 - Intelligent Source Discovery")
     
     # Hole User Query
     user_message = None
@@ -302,24 +163,200 @@ async def knowledge_node(state: AgentState) -> AgentState:
         state["tool_outputs"]["knowledge_result"] = "Error: Keine User-Query gefunden."
         return state
     
+    logger.info(f"  Query: {user_message[:100]}...")
+    
+    # =========================================================================
+    # STEP 1: LLM Source Discovery (Catalog-first!)
+    # =========================================================================
+    logger.info("📋 Step 1: LLM-based Source Discovery")
+    
+    from app.services.metadata_store import metadata_service
+    metadata_svc = metadata_service()
+    
     try:
-        # Suche in Knowledge Base
-        logger.info(f"🔍 Searching for: {user_message[:100]}...")
-        knowledge_result = await search_knowledge_base.ainvoke({"query": user_message})
+        # LLM wählt relevante Sources
+        relevant_sources = await metadata_svc.get_relevant_sources_llm(
+            query=user_message,
+            max_sources=3
+        )
         
-        # Speichere Ergebnis
-        state["tool_outputs"]["knowledge_result"] = knowledge_result
-        
-        # Log Ergebnis
-        if "Keine relevanten" in knowledge_result or "nicht verfügbar" in knowledge_result:
-            logger.info("⚠️ No relevant knowledge found")
-        else:
-            logger.info(f"✅ Knowledge retrieved: {len(knowledge_result)} chars")
+        logger.info(f"  ✅ Selected {len(relevant_sources)} sources: {[s.id for s in relevant_sources]}")
         
     except Exception as e:
-        error_msg = f"Error in knowledge search: {str(e)}"
-        logger.error(f"❌ {error_msg}", exc_info=True)
-        state["tool_outputs"]["knowledge_result"] = error_msg
+        logger.error(f"  ❌ LLM Source Discovery failed: {e}")
+        # Fallback: Nur knowledge_base
+        relevant_sources = [metadata_svc.get_source_by_id("knowledge_base")]
+        logger.warning(f"  ⚠️ Using fallback: knowledge_base only")
+    
+    # =========================================================================
+    # STEP 2: Check if we need Entity IDs from Graph
+    # =========================================================================
+    needs_entity_ids = any(
+        source.requires_entity_id 
+        for source in relevant_sources 
+        if source
+    )
+    
+    entity_ids = {}
+    graph_context = ""
+    
+    if needs_entity_ids:
+        logger.info("🕸️ Step 2: Graph Query needed (Entity Resolution)")
+        
+        try:
+            from app.services.graph_store import get_graph_store_service
+            graph_store = get_graph_store_service()
+            
+            # Query Graph für Entity IDs
+            cypher_query = """
+            MATCH (n)
+            WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
+            AND toLower($query) CONTAINS toLower(n.name)
+            RETURN n.source_id as source_id, 
+                   n.name as name, 
+                   labels(n)[0] as type
+            LIMIT 5
+            """
+            
+            entities = await graph_store.query(
+                cypher_query,
+                parameters={"query": user_message}
+            )
+            
+            if entities:
+                logger.info(f"  ✅ Found {len(entities)} entities in graph")
+                
+                # Extrahiere Entity IDs
+                for entity in entities:
+                    source_id = entity.get("source_id", "")
+                    entity_name = entity.get("name", "")
+                    entity_type = entity.get("type", "")
+                    
+                    logger.info(f"    - {entity_type}: {entity_name} ({source_id})")
+                    
+                    # Kategorisiere Entities
+                    if source_id.startswith("zoho_"):
+                        if "crm" not in entity_ids:  # Erste CRM-Entity
+                            entity_ids["crm"] = source_id
+                            state["crm_target"] = source_id
+                    
+                    elif source_id.startswith("iot_"):
+                        if "iot" not in entity_ids:  # Erste IoT-Entity
+                            entity_ids["iot"] = source_id
+                
+                if entity_ids:
+                    logger.info(f"  🎯 Entity IDs extracted: {entity_ids}")
+                else:
+                    logger.warning("  ⚠️ No usable entity IDs found")
+            else:
+                logger.info("  ℹ️ No entities with source_id found in query")
+            
+        except Exception as e:
+            logger.error(f"  ❌ Graph query failed: {e}", exc_info=True)
+            # Continue without entity IDs
+    else:
+        logger.info("⏭️ Step 2: Skipping Graph Query (no entity IDs needed)")
+    
+    # =========================================================================
+    # STEP 3: Execute Tools based on Sources
+    # =========================================================================
+    logger.info("🔧 Step 3: Executing tools for relevant sources")
+    
+    tool_results = {}
+    
+    for source in relevant_sources:
+        if not source:
+            continue
+        
+        source_id = source.id
+        tool_name = source.tool
+        
+        logger.info(f"  📞 {source_id}: Calling tool '{tool_name}'")
+        
+        try:
+            # ---- Knowledge Base (Vector + Graph) ----
+            if tool_name == "search_knowledge_base":
+                result = await search_knowledge_base.ainvoke({"query": user_message})
+                tool_results["knowledge_result"] = result
+                
+                if "Keine relevanten" in result or "nicht verfügbar" in result:
+                    logger.info(f"    ⚠️ No relevant knowledge found")
+                else:
+                    logger.info(f"    ✅ Knowledge retrieved: {len(result)} chars")
+            
+            # ---- CRM (Live Data via Graph-ID) ----
+            elif tool_name == "get_crm_facts":
+                if "crm" in entity_ids:
+                    result = await get_crm_facts.ainvoke({
+                        "entity_id": entity_ids["crm"],
+                        "query_context": user_message
+                    })
+                    tool_results["crm_result"] = result
+                    
+                    if "Error" in result or "Fehler" in result:
+                        logger.warning(f"    ⚠️ CRM query had errors")
+                    else:
+                        logger.info(f"    ✅ CRM facts retrieved: {len(result)} chars")
+                else:
+                    logger.warning(f"    ⚠️ CRM source selected but no entity ID found")
+                    tool_results["crm_result"] = "CRM-Daten: Keine Entity-ID gefunden."
+            
+            # ---- SQL (für IoT/Sensoren via Graph-ID) ----
+            elif tool_name == "execute_sql_query":
+                if "iot" in entity_ids:
+                    from app.tools.sql import execute_sql_query as sql_tool
+                    
+                    # Einfaches SQL für Equipment (kann erweitert werden)
+                    equipment_id = entity_ids["iot"]
+                    
+                    # Prüfe welche Tabellen relevant sind
+                    relevant_tables = source.get_relevant_tables(user_message)
+                    
+                    if relevant_tables:
+                        table_name = relevant_tables[0].get("name", "machine_sensors")
+                        
+                        # Simple SQL Query
+                        sql_query = f"""
+                        SELECT * FROM {table_name}
+                        WHERE machine_id = '{equipment_id}'
+                        ORDER BY timestamp DESC
+                        LIMIT 10
+                        """
+                        
+                        result = sql_tool.invoke({
+                            "query": sql_query,
+                            "source_id": source_id
+                        })
+                        
+                        tool_results["sql_result"] = result
+                        logger.info(f"    ✅ SQL query executed: {len(result)} chars")
+                    else:
+                        logger.warning(f"    ⚠️ No relevant tables found for SQL query")
+                else:
+                    logger.warning(f"    ⚠️ SQL source selected but no equipment ID found")
+                    tool_results["sql_result"] = "SQL-Daten: Keine Equipment-ID gefunden."
+            
+            else:
+                logger.warning(f"    ⚠️ Unknown tool: {tool_name}")
+        
+        except Exception as e:
+            logger.error(f"    ❌ Tool {tool_name} failed: {e}", exc_info=True)
+            tool_results[f"{source_id}_error"] = str(e)
+    
+    # =========================================================================
+    # STEP 4: Store Results in State
+    # =========================================================================
+    logger.info("💾 Step 4: Storing results in state")
+    
+    state["tool_outputs"] = tool_results
+    
+    result_summary = ", ".join([
+        f"{key}({len(str(val))} chars)" 
+        for key, val in tool_results.items()
+    ])
+    logger.info(f"  ✅ Results: {result_summary}")
+    
+    logger.info("🎉 Smart Orchestrator completed successfully")
     
     return state
 
@@ -376,9 +413,16 @@ async def crm_node(state: AgentState) -> AgentState:
 
 async def generation_node(state: AgentState) -> AgentState:
     """
-    Generation Node: Generiert die finale Antwort basierend auf allen Tool-Outputs.
+    Generator Node: Synthesiert finale Antwort aus Multi-Source Contexts (Phase 3).
+    
+    Kombiniert:
+    - Knowledge Base (Vector + Graph)
+    - CRM Live Data
+    - SQL/IoT Data
+    
+    Der LLM versteht die Zusammenhänge zwischen den Quellen.
     """
-    logger.info("✍️ Generation Node: Creating final answer")
+    logger.info("✍️ [GENERATOR] Synthesizing answer from multiple sources")
     
     # Hole User Query
     user_message = None
@@ -394,19 +438,41 @@ async def generation_node(state: AgentState) -> AgentState:
     tool_outputs = state.get("tool_outputs", {})
     intent = state.get("intent", "general")
     
-    # Baue Kontext für die Antwort
+    # Baue strukturierten Kontext für die Antwort
     context_parts = []
+    sources_used = []
     
-    if "sql_result" in tool_outputs and tool_outputs["sql_result"]:
-        context_parts.append(f"DATENBANK-ERGEBNISSE:\n{tool_outputs['sql_result']}")
-    
+    # Knowledge Base (Vector + Graph) - Der "Glue"!
     if "knowledge_result" in tool_outputs and tool_outputs["knowledge_result"]:
-        context_parts.append(f"WISSENSDATENBANK:\n{tool_outputs['knowledge_result']}")
+        kb_result = tool_outputs["knowledge_result"]
+        if "Error" not in kb_result and "Keine" not in kb_result:
+            context_parts.append(f"=== WISSENSDATENBANK (Dokumente + Knowledge Graph) ===\n{kb_result}")
+            sources_used.append("knowledge_base")
+            logger.info("  ✓ Including knowledge_base context")
     
+    # CRM Live Data
     if "crm_result" in tool_outputs and tool_outputs["crm_result"]:
-        context_parts.append(f"CRM LIVE-DATEN:\n{tool_outputs['crm_result']}")
+        crm_result = tool_outputs["crm_result"]
+        if "Error" not in crm_result and "Keine" not in crm_result:
+            context_parts.append(f"\n=== LIVE CRM-DATEN (Aktuelle Informationen) ===\n{crm_result}")
+            sources_used.append("crm")
+            logger.info("  ✓ Including CRM context")
     
-    context = "\n\n".join(context_parts) if context_parts else "Keine Informationen gefunden."
+    # SQL/IoT Data
+    if "sql_result" in tool_outputs and tool_outputs["sql_result"]:
+        sql_result = tool_outputs["sql_result"]
+        if "Error" not in sql_result and "Keine" not in sql_result:
+            context_parts.append(f"\n=== ECHTZEIT-DATEN (Sensoren/Datenbank) ===\n{sql_result}")
+            sources_used.append("sql")
+            logger.info("  ✓ Including SQL context")
+    
+    # Kombiniere alle Kontexte
+    if context_parts:
+        context = "\n\n".join(context_parts)
+        logger.info(f"  📊 Combined context from {len(sources_used)} sources: {sources_used}")
+    else:
+        context = "Keine relevanten Informationen gefunden."
+        logger.warning("  ⚠️ No context available for answer generation")
     
     # Generiere finale Antwort
     llm = get_llm(temperature=0.7, streaming=False)
@@ -441,23 +507,23 @@ async def generation_node(state: AgentState) -> AgentState:
 # Routing Logic
 # =============================================================================
 
-def should_use_sql(state: AgentState) -> str:
-    """Entscheidet ob SQL Node aufgerufen werden soll."""
-    intent = state.get("intent", "")
-    return "sql" if intent in ["sql", "hybrid"] else "skip_sql"
-
-
 def should_use_knowledge(state: AgentState) -> str:
-    """Entscheidet ob Knowledge Node aufgerufen werden soll."""
-    intent = state.get("intent", "")
-    return "knowledge" if intent in ["knowledge", "hybrid", "general"] else "skip_knowledge"
+    """
+    Entscheidet ob Knowledge Orchestrator aufgerufen werden soll.
+    Bei "question" → Knowledge Orchestrator
+    Bei "general" (Small Talk) → Direkt zum Generator
+    """
+    intent = state.get("intent", "question")
+    return "knowledge" if intent == "question" else "skip_knowledge"
 
 
 def should_use_crm(state: AgentState) -> str:
-    """Entscheidet ob CRM Node aufgerufen werden soll."""
-    intent = state.get("intent", "")
+    """
+    Entscheidet ob CRM Node aufgerufen werden soll.
+    Nur wenn crm_target im State vorhanden ist.
+    """
     has_target = bool(state.get("crm_target"))
-    return "crm" if intent == "crm" and has_target else "skip_crm"
+    return "crm" if has_target else "skip_crm"
 
 
 # =============================================================================
@@ -466,19 +532,21 @@ def should_use_crm(state: AgentState) -> str:
 
 def create_chat_workflow() -> StateGraph:
     """
-    Erstellt den LangGraph Chat Workflow.
+    Erstellt den vereinfachten LangGraph Chat Workflow (Phase 1).
+    
+    Flow:
+        Router → Knowledge Orchestrator → [optional: CRM] → Generator
     
     Returns:
         Compiled StateGraph für den Chat Agenten
     """
-    logger.info("🏗️ Building chat workflow graph")
+    logger.info("🏗️ Building simplified chat workflow graph (Phase 1)")
     
     # Erstelle den State Graph
     workflow = StateGraph(AgentState)
     
-    # Füge Nodes hinzu
+    # Füge Nodes hinzu (SQL Node entfernt!)
     workflow.add_node("router", router_node)
-    workflow.add_node("sql", sql_node)
     workflow.add_node("knowledge", knowledge_node)
     workflow.add_node("crm", crm_node)
     workflow.add_node("generator", generation_node)
@@ -486,19 +554,17 @@ def create_chat_workflow() -> StateGraph:
     # Setze Entry Point
     workflow.set_entry_point("router")
     
-    # Conditional Edges vom Router
-    # Router entscheidet: SQL, Knowledge, oder CRM
+    # Router → Knowledge oder Generator
+    # Bei "question" → Knowledge Orchestrator
+    # Bei "general" (Small Talk) → Direkt Generator
     workflow.add_conditional_edges(
         "router",
-        should_use_sql,
+        should_use_knowledge,
         {
-            "sql": "sql",
-            "skip_sql": "knowledge"  # Wenn kein SQL, prüfe Knowledge/CRM
+            "knowledge": "knowledge",
+            "skip_knowledge": "generator"  # Small Talk
         }
     )
-    
-    # SQL Node geht zu Generator
-    workflow.add_edge("sql", "generator")
     
     # Knowledge Node prüft ob CRM benötigt wird
     workflow.add_conditional_edges(
@@ -519,7 +585,7 @@ def create_chat_workflow() -> StateGraph:
     # Compile den Workflow
     app = workflow.compile()
     
-    logger.info("✅ Chat workflow graph compiled successfully")
+    logger.info("✅ Chat workflow compiled (4 nodes: router, knowledge, crm, generator)")
     
     return app
 

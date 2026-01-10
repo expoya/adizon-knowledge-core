@@ -44,17 +44,17 @@ graph TB
     end
     
     subgraph Agent["🤖 Agentic RAG Core"]
-        ROUTER[Router Node<br/>Intent Classification<br/>Entity Detection]
+        ROUTER[Router Node<br/>Intent Classification<br/>CRM Entity Detection]
         SQL[SQL Node<br/>Query Generation]
         KB[Knowledge Node<br/>Hybrid Search]
-        CRM[CRM Node<br/>Live Facts]
+        CRM[CRM Node<br/>Live Facts<br/>CONDITIONAL]
         GEN[Generator Node<br/>Answer Synthesis]
     end
     
     subgraph Tools["🔧 Agent Tools"]
-        SQLTOOL[SQL Tools<br/>execute_query<br/>get_schema]
+        SQLTOOL[SQL Tools<br/>execute_sql_query<br/>get_sql_schema]
         KBTOOL[Knowledge Tool<br/>search_knowledge_base]
-        CRMTOOL[CRM Tools<br/>get_crm_facts<br/>check_status]
+        CRMTOOL[CRM Tool<br/>get_crm_facts]
         META[Metadata Service<br/>Source Discovery]
     end
     
@@ -62,14 +62,14 @@ graph TB
         VECTOR[(Vector Store<br/>pgvector)]
         GRAPH[(Knowledge Graph<br/>Neo4j)]
         ERP[(External DB<br/>ERP PostgreSQL)]
-        ZOHO[(CRM System<br/>Zoho/Salesforce)]
+        ZOHO[(CRM System<br/>Zoho Books)]
     end
     
     UI --> CHAT
     CHAT --> ROUTER
     
-    ROUTER -->|"intent: sql"| SQL
-    ROUTER -->|"intent: knowledge"| KB
+    ROUTER -->|"intent=sql"| SQL
+    ROUTER -->|"intent=knowledge<br/>or intent=crm"| KB
     
     SQL --> SQLTOOL
     KB --> KBTOOL
@@ -82,7 +82,8 @@ graph TB
     CRMTOOL --> ZOHO
     
     SQL --> GEN
-    KB --> CRM
+    KB -->|"if crm_target<br/>exists"| CRM
+    KB -->|"else"| GEN
     CRM --> GEN
     GEN --> CHAT
     CHAT --> UI
@@ -90,6 +91,7 @@ graph TB
     style Agent fill:#e1f5ff
     style Tools fill:#fff4e1
     style Data fill:#f0f0f0
+    style CRM stroke-dasharray: 5 5
 ```
 
 ### Workflow Execution Flow
@@ -102,37 +104,63 @@ sequenceDiagram
     participant Meta as Metadata Service
     participant SQL as SQL Node
     participant KB as Knowledge Node
+    participant CRM as CRM Node
     participant Gen as Generator Node
     participant DB as External DB
     participant Vector as Vector Store
     participant Graph as Knowledge Graph
+    participant Zoho as Zoho CRM
     
-    User->>API: POST /chat {"message": "Welche Rechnungen im Dezember?"}
+    User->>API: POST /chat {"message": "..."}
     API->>Router: Execute Workflow
     
     Router->>Router: LLM Intent Classification
     Router->>Meta: get_relevant_tables(query)
-    Meta-->>Router: Found: "invoices" table
-    Router->>Router: Set intent="sql", sql_context={...}
     
-    alt SQL Intent
+    alt SQL Intent (Finanzielle Daten)
+        Meta-->>Router: Found: "invoices" table
+        Router->>Router: Set intent="sql", sql_context={...}
         Router->>SQL: Route to SQL Node
         SQL->>SQL: get_sql_schema("invoices")
         SQL->>SQL: LLM generates SQL Query
         SQL->>DB: execute_sql_query(...)
         DB-->>SQL: Query Results
         SQL->>Gen: tool_outputs["sql_result"]
-    else Knowledge Intent
+    else Knowledge Intent (Dokumente/Graph)
+        Meta-->>Router: No tables found
+        Router->>Router: Search for CRM entities in Graph
+        Router->>Graph: Query for entities with source_id
+        
+        alt CRM Entity Found
+            Graph-->>Router: Found: "zoho_123456" (Person/Firma)
+            Router->>Router: Set intent="crm", crm_target="zoho_123456"
+        else No CRM Entity
+            Graph-->>Router: No CRM entity found
+            Router->>Router: Set intent="knowledge"
+        end
+        
         Router->>KB: Route to Knowledge Node
-        KB->>Vector: Similarity Search
-        KB->>Graph: Query Graph
-        Vector-->>KB: Relevant Chunks
-        Graph-->>KB: Entity Context
-        KB->>Gen: tool_outputs["knowledge_result"]
+        par Hybrid Search
+            KB->>Vector: Similarity Search (top 5, ≥0.8)
+            Vector-->>KB: Relevant Chunks
+        and
+            KB->>Graph: Query Graph (Entities & Relations)
+            Graph-->>KB: Graph Context
+        end
+        KB->>KB: Store tool_outputs["knowledge_result"]
+        
+        alt CRM Target exists
+            KB->>CRM: Route to CRM Node
+            CRM->>Zoho: get_crm_facts(entity_id)
+            Zoho-->>CRM: Live CRM Data (Deals, Status, etc.)
+            CRM->>Gen: tool_outputs["crm_result"]
+        else No CRM Target
+            KB->>Gen: tool_outputs["knowledge_result"]
+        end
     end
     
     Gen->>Gen: LLM synthesizes answer
-    Gen->>Gen: Combines all contexts
+    Gen->>Gen: Combines all tool_outputs
     Gen-->>API: messages[-1] = AIMessage
     API-->>User: ChatResponse with answer
 ```
@@ -146,40 +174,55 @@ sequenceDiagram
 ```python
 class AgentState(TypedDict):
     messages: List[AnyMessage]          # Conversation history
-    intent: str                         # "sql" | "knowledge" | "hybrid" | "general"
+    intent: str                         # "sql" | "knowledge" | "crm" | "general"
     sql_context: Dict[str, Any]         # {"source_id": "...", "table_names": [...]}
-    tool_outputs: Dict[str, str]        # Tool results storage
+    crm_target: str                     # Entity ID für CRM-Abfrage (z.B. "zoho_123456")
+    tool_outputs: Dict[str, str]        # {"sql_result": "...", "knowledge_result": "...", "crm_result": "..."}
 ```
 
 **State Flow:**
 ```
-INITIAL → Router (sets intent + context) → Tools (populate outputs) → Generator → FINAL
+INITIAL → Router (sets intent + context + crm_target) → Tools (populate outputs) → Generator → FINAL
 ```
+
+**Intent Types:**
+- `sql`: Finanzielle/strukturierte Daten aus externer DB
+- `knowledge`: Dokument-basierte Suche (Vector + Graph)
+- `crm`: Kombination aus Knowledge + Live CRM-Facts
+- `general`: Allgemeine Fragen ohne spezifischen Kontext
 
 ### 2. LangGraph Nodes
 
 #### 🔀 Router Node
-**Purpose:** Query Classification & Source Discovery
+**Purpose:** Query Classification, Source Discovery & CRM Entity Detection
 
 ```mermaid
-flowchart LR
+flowchart TD
     START([Query]) --> LLM[LLM Classification]
     LLM --> CHECK{SQL Intent?}
     CHECK -->|Yes| META[Metadata Search]
-    CHECK -->|No| KB[Set intent=knowledge]
+    CHECK -->|No| GRAPH[Graph Search for CRM Entities]
+    
     META --> FOUND{Tables Found?}
     FOUND -->|Yes| SQL[Set intent=sql<br/>+ sql_context]
-    FOUND -->|No| FALLBACK[Fallback to knowledge]
+    FOUND -->|No| GRAPH
+    
+    GRAPH --> ENTITY{CRM Entity<br/>with source_id?}
+    ENTITY -->|Yes| CRM[Set intent=crm<br/>+ crm_target]
+    ENTITY -->|No| KB[Set intent=knowledge]
+    
     SQL --> END([Continue])
+    CRM --> END
     KB --> END
-    FALLBACK --> END
 ```
 
 **Key Features:**
 - LLM-based intent classification (temperature=0.0)
-- Queries `MetadataService.get_relevant_tables()`
-- Extracts source_id and table names
-- Sets workflow direction
+- Queries `MetadataService.get_relevant_tables()` für SQL-Daten
+- Sucht im Graph nach CRM-Entities (Nodes mit `source_id` wie "zoho_123456")
+- Extrahiert source_id und table names für SQL-Context
+- Setzt crm_target für CRM-Abfragen
+- Sets workflow direction (sql → knowledge → crm → generator)
 
 #### 🗄️ SQL Node
 **Purpose:** SQL Query Generation & Execution
@@ -206,6 +249,7 @@ flowchart LR
    - Vector search: Top 5 chunks (score ≥ 0.8)
    - Graph search: Relevant entities and relationships
 3. Store combined result in `tool_outputs["knowledge_result"]`
+4. Check if CRM target exists → route to CRM node or directly to generator
 
 **Output Format:**
 ```
@@ -216,6 +260,38 @@ Content...
 === GRAPH WISSEN ===
 ORGANIZATION: Voltage Solutions
   - HAS_DEAL -> DEAL: Solar Installation
+```
+
+#### 🏢 CRM Node (CONDITIONAL)
+**Purpose:** Live CRM Data Enrichment
+
+**Activation:** Nur wenn `crm_target` im State gesetzt ist (via Router)
+
+**Process:**
+1. Call `get_crm_facts` tool with `entity_id` (z.B. "zoho_123456")
+2. Tool internally:
+   - Connects to CRM system (Zoho Books)
+   - Fetches live data for entity
+   - Returns formatted facts (Deals, Status, Contact Info, etc.)
+3. Store result in `tool_outputs["crm_result"]`
+
+**Conditional Logic:**
+```python
+def should_use_crm(state: AgentState) -> str:
+    intent = state.get("intent", "")
+    has_target = bool(state.get("crm_target"))
+    return "crm" if intent == "crm" and has_target else "skip_crm"
+```
+
+**Output Format:**
+```
+=== LIVE CRM FACTS ===
+Entity: Max Mustermann (CONTACT)
+Status: Active Customer
+Last Activity: 2025-01-05
+Open Deals: 2
+- Deal #1: Solar Installation (€50,000)
+- Deal #2: Consulting Package (€5,000)
 ```
 
 #### ✍️ Generator Node

@@ -173,10 +173,12 @@ sequenceDiagram
     participant ROUTER as Router Node
     participant SQL as SQL Node
     participant KB as Knowledge Node
+    participant CRM as CRM Node
     participant GEN as Generator Node
     participant EXDB as External DB
     participant PG as PostgreSQL<br/>+ pgvector
     participant NEO as Neo4j
+    participant ZOHO as Zoho CRM
 
     FE->>BE: POST /api/v1/chat
     BE->>WF: Execute Workflow
@@ -191,7 +193,9 @@ sequenceDiagram
         SQL->>EXDB: Execute SQL
         EXDB-->>SQL: Results
         SQL->>GEN: SQL Context
-    else Knowledge Intent
+    else Knowledge/CRM Intent
+        ROUTER->>NEO: Search for CRM entities
+        NEO-->>ROUTER: Entity with source_id (optional)
         ROUTER->>KB: Route to Knowledge
         par Hybrid Search
             KB->>PG: Vector Search
@@ -200,7 +204,16 @@ sequenceDiagram
             KB->>NEO: Graph Query
             NEO-->>KB: Entities
         end
-        KB->>GEN: Knowledge Context
+        KB->>KB: Store Knowledge Context
+        
+        alt CRM Target Found
+            KB->>CRM: Route to CRM Node
+            CRM->>ZOHO: get_crm_facts(entity_id)
+            ZOHO-->>CRM: Live CRM Data
+            CRM->>GEN: CRM + Knowledge Context
+        else No CRM Target
+            KB->>GEN: Knowledge Context Only
+        end
     end
     
     GEN->>GEN: Synthesize Answer
@@ -329,10 +342,10 @@ graph LR
 
 ```mermaid
 graph TB
-    START([Start]) --> ROUTER[Router Node<br/>🔍 Intent Classification]
+    START([Start]) --> ROUTER[Router Node<br/>🔍 Intent Classification<br/>🏢 CRM Entity Detection]
     
     ROUTER -->|intent=sql| SQL[SQL Node<br/>🗄️ Query Generation]
-    ROUTER -->|intent=knowledge| KB[Knowledge Node<br/>📚 Hybrid Search]
+    ROUTER -->|intent=knowledge<br/>or intent=crm| KB[Knowledge Node<br/>📚 Hybrid Search]
     
     subgraph SQL_FLOW[SQL Processing]
         SQL --> SCHEMA[Get Schema<br/>SQLAlchemy Inspector]
@@ -345,16 +358,24 @@ graph TB
         KB --> GRAPH[Graph Search<br/>Neo4j]
     end
     
-    EXEC --> GEN[Generator Node<br/>✍️ Answer Synthesis]
-    VEC --> GEN
-    GRAPH --> GEN
+    KB -->|crm_target exists| CRM[CRM Node<br/>🏢 Live Facts]
+    KB -->|no crm_target| GEN[Generator Node<br/>✍️ Answer Synthesis]
+    
+    subgraph CRM_FLOW[CRM Processing - CONDITIONAL]
+        CRM --> ZOHO[Query Zoho CRM<br/>get_crm_facts]
+    end
+    
+    EXEC --> GEN
+    ZOHO --> GEN
     
     GEN --> END([Final Answer])
     
     style ROUTER fill:#e1f5ff
     style SQL fill:#fff4e1
     style KB fill:#e8f5e9
+    style CRM fill:#ffe8e8
     style GEN fill:#f3e5f5
+    style CRM_FLOW stroke-dasharray: 5 5
 ```
 
 ### Agent State Flow
@@ -368,12 +389,15 @@ stateDiagram-v2
         ClassifyIntent --> SearchMetadata: SQL keywords detected
         SearchMetadata --> CheckTables: Query metadata service
         CheckTables --> SetSQLIntent: Tables found
-        CheckTables --> SetKnowledgeIntent: No tables
+        CheckTables --> SearchCRMEntities: No tables
+        SearchCRMEntities --> SetCRMIntent: CRM entity found
+        SearchCRMEntities --> SetKnowledgeIntent: No CRM entity
         ClassifyIntent --> SetKnowledgeIntent: Knowledge keywords
     }
     
     SetSQLIntent --> SQLNode
     SetKnowledgeIntent --> KnowledgeNode
+    SetCRMIntent --> KnowledgeNode
     
     state SQLNode {
         [*] --> GetSchema
@@ -385,12 +409,22 @@ stateDiagram-v2
     state KnowledgeNode {
         [*] --> VectorSearch
         [*] --> GraphSearch
-        VectorSearch --> [*]
-        GraphSearch --> [*]
+        VectorSearch --> CheckCRMTarget
+        GraphSearch --> CheckCRMTarget
+        CheckCRMTarget --> RouteToCRM: crm_target exists
+        CheckCRMTarget --> RouteToGenerator: no crm_target
+    }
+    
+    state CRMNode {
+        [*] --> GetLiveFacts
+        GetLiveFacts --> FormatCRMData
+        FormatCRMData --> [*]
     }
     
     SQLNode --> GeneratorNode
-    KnowledgeNode --> GeneratorNode
+    RouteToCRM --> CRMNode
+    RouteToGenerator --> GeneratorNode
+    CRMNode --> GeneratorNode
     
     state GeneratorNode {
         [*] --> CollectContext
@@ -408,6 +442,8 @@ stateDiagram-v2
 | `search_knowledge_base` | Hybrid RAG (Vector+Graph) | `app/tools/knowledge.py` |
 | `execute_sql_query` | Run SELECT queries | `app/tools/sql.py` |
 | `get_sql_schema` | Inspect table schemas | `app/tools/sql.py` |
+| `get_crm_facts` | Fetch live CRM data | `app/tools/crm.py` |
+| `check_crm_status` | Check CRM availability | `app/tools/crm.py` |
 
 ### External Source Configuration
 
