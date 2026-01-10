@@ -179,17 +179,110 @@ async def query_notes(client: ZohoClient, zoho_id: str) -> str:
     return ""  # Return empty string if no notes (not an error)
 
 
-async def search_live_facts(client: ZohoClient, entity_id: str, query_context: str) -> str:
+async def query_books_invoices(books_client, crm_account_id: str) -> str:
+    """
+    Queries Zoho Books Invoices for a CRM Account.
+    
+    Args:
+        books_client: ZohoBooksClient instance (or None)
+        crm_account_id: CRM Account ID (without "zoho_" prefix)
+        
+    Returns:
+        Markdown formatted section or empty string
+    """
+    if not books_client:
+        logger.debug("⚠️ Books client not available - skipping invoice query")
+        return ""
+    
+    try:
+        from app.integrations.zoho.books_client import ZohoBooksClient
+        
+        # Get all invoices (we'll filter by customer mapping)
+        logger.debug(f"📊 Fetching Books Invoices for CRM Account: {crm_account_id}")
+        
+        # Build customer mapping to find correct Books customer_id
+        customer_mapping = await books_client.build_customer_to_account_mapping()
+        
+        # Reverse mapping: CRM Account ID → Books Customer ID
+        reverse_mapping = {v: k for k, v in customer_mapping.items()}
+        books_customer_id = reverse_mapping.get(crm_account_id)
+        
+        if not books_customer_id:
+            logger.debug(f"⚠️ No Books Customer found for CRM Account {crm_account_id}")
+            return ""
+        
+        # Fetch invoices for this customer
+        # Books API doesn't have direct customer filter in list, so we fetch and filter
+        invoices = await books_client.fetch_all_invoices(max_pages=5)
+        
+        # Filter by customer_id
+        customer_invoices = [
+            inv for inv in invoices 
+            if str(inv.get("customer_id")) == books_customer_id
+        ]
+        
+        if customer_invoices:
+            section = ["### 🧾 Rechnungen (Zoho Books)\n"]
+            total_amount = 0
+            total_balance = 0
+            
+            for invoice in customer_invoices[:20]:  # Limit to 20
+                invoice_number = invoice.get("invoice_number", "N/A")
+                status = invoice.get("status", "N/A")
+                total = float(invoice.get("total", 0))
+                balance = float(invoice.get("balance", 0))
+                date = invoice.get("date", "N/A")
+                due_date = invoice.get("due_date", "N/A")
+                currency = invoice.get("currency_code", "EUR")
+                
+                # Status emoji
+                status_emoji = {
+                    "paid": "✅",
+                    "sent": "📤",
+                    "draft": "📝",
+                    "overdue": "⚠️",
+                    "void": "❌"
+                }.get(status.lower(), "📄")
+                
+                section.append(
+                    f"- {status_emoji} **{invoice_number}**: {currency} {total:,.2f} "
+                    f"(Balance: {balance:,.2f}) | {status} | "
+                    f"Date: {date} | Due: {due_date}"
+                )
+                
+                total_amount += total
+                total_balance += balance
+            
+            section.append(f"\n**Total**: {currency} {total_amount:,.2f}")
+            section.append(f"**Outstanding Balance**: {currency} {total_balance:,.2f}")
+            section.append(f"**Total Invoices**: {len(customer_invoices)}")
+            
+            logger.info(f"✅ Found {len(customer_invoices)} Books Invoices")
+            return "\n".join(section)
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Books Invoices query failed: {e}")
+    
+    return ""
+
+
+async def search_live_facts(
+    client: ZohoClient, 
+    entity_id: str, 
+    query_context: str,
+    books_client = None
+) -> str:
     """
     Retrieves live facts about a Zoho entity.
     
-    Queries multiple modules (Einwände, Calendly, Deals, Finance) and
+    Queries multiple modules (Notes, Einwände, Calendly, Deals, Books Invoices) and
     formats results as Markdown for LLM consumption.
     
     Args:
         client: ZohoClient instance
         entity_id: Zoho record ID (with "zoho_" prefix)
         query_context: Context about what information is needed
+        books_client: Optional ZohoBooksClient for invoice queries
         
     Returns:
         Formatted Markdown string with entity facts
@@ -205,6 +298,12 @@ async def search_live_facts(client: ZohoClient, entity_id: str, query_context: s
     
     # Collect results from all queries
     sections = []
+    
+    # Query Books Invoices (if available)
+    if books_client:
+        invoices_section = await query_books_invoices(books_client, zoho_id)
+        if invoices_section:
+            sections.append(invoices_section)
     
     # Query Notes
     notes_section = await query_notes(client, zoho_id)

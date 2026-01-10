@@ -320,6 +320,7 @@ class ZohoCRMProvider(CRMProvider):
         Retrieves live facts about a Zoho entity.
         
         Delegates to queries module for actual implementation.
+        Includes Books Invoices if Books integration is enabled.
         
         Args:
             entity_id: Zoho record ID (with "zoho_" prefix)
@@ -328,7 +329,12 @@ class ZohoCRMProvider(CRMProvider):
         Returns:
             Formatted Markdown string with entity facts
         """
-        return await execute_live_facts_query(self.client, entity_id, query_context)
+        return await execute_live_facts_query(
+            self.client, 
+            entity_id, 
+            query_context,
+            books_client=self.books_client  # Pass Books client for invoice queries
+        )
 
     def get_provider_name(self) -> str:
         """Returns provider name."""

@@ -282,9 +282,9 @@ class GraphQueryService:
         CRM entities use various name fields (deal_name, account_name_name, contact_name_name).
         We search across ALL string properties to find matches.
         
-        IMPORTANT: Queries BOTH outgoing AND incoming relationships to capture:
-        - Outgoing: Contact → Account (WORKS_AT)
-        - Incoming: Note → Contact (HAS_NOTE), Task → Contact (HAS_TASK), etc.
+        IMPORTANT: 
+        - Queries BOTH outgoing AND incoming relationships
+        - Special handling for "Rechnung"/"Invoice" keywords → searches BooksInvoice nodes
         
         Args:
             keywords: List of keywords to search
@@ -292,10 +292,77 @@ class GraphQueryService:
         Returns:
             Query result with both relationship directions
         """
-        # Search across ALL properties and get BOTH relationship directions
-        result = await self._run_sync(
-            self.driver.execute_query,
+        # Check if query is about invoices/rechnungen
+        invoice_keywords = any(
+            kw.lower() in ['rechnung', 'rechnungen', 'invoice', 'invoices', 'faktura']
+            for kw in keywords
+        )
+        
+        # Build query with conditional invoice search
+        if invoice_keywords:
+            logger.debug("  💡 Invoice keywords detected - including BooksInvoice search")
+            query = """
+            // Part 1: Search entities by name/properties
+            MATCH (n)
+            WHERE (n.status = 'APPROVED' OR n.status IS NULL)
+              AND ANY(keyword IN $keywords WHERE 
+                  toLower(coalesce(n.name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.deal_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.contact_name_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.company, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.first_name, '')) CONTAINS toLower(keyword)
+                  OR toLower(coalesce(n.last_name, '')) CONTAINS toLower(keyword)
+              )
+            WITH n LIMIT 10
+            
+            // Part 2: For each entity, also fetch related BooksInvoices
+            CALL {
+                WITH n
+                OPTIONAL MATCH (n)<-[:HAS_INVOICE]-(invoice:BooksInvoice)
+                RETURN n, invoice
+            }
+            WITH n, invoice
+            
+            // Part 3: Get outgoing/incoming relationships for main entity
+            CALL {
+                WITH n
+                OPTIONAL MATCH (n)-[r_out]->(m_out)
+                WHERE (m_out.status = 'APPROVED' OR m_out.status IS NULL)
+                  AND (r_out.status = 'APPROVED' OR r_out.status IS NULL)
+                RETURN 
+                    type(r_out) as relationship,
+                    coalesce(m_out.name, m_out.deal_name, m_out.account_name_name, m_out.contact_name_name, m_out.first_name + ' ' + m_out.last_name, m_out.note_title, m_out.subject) as related_entity,
+                    coalesce(m_out.note_content, m_out.description, '') as entity_content
+                
+                UNION ALL
+                
+                WITH n
+                OPTIONAL MATCH (m_in)-[r_in]->(n)
+                WHERE (m_in.status = 'APPROVED' OR m_in.status IS NULL)
+                  AND (r_in.status = 'APPROVED' OR r_in.status IS NULL)
+                RETURN 
+                    type(r_in) as relationship,
+                    coalesce(m_in.name, m_in.deal_name, m_in.account_name_name, m_in.contact_name_name, m_in.first_name + ' ' + m_in.last_name, m_in.note_title, m_in.subject) as related_entity,
+                    coalesce(m_in.note_content, m_in.description, '') as entity_content
+            }
+            
+            // Part 4: Return results
+            RETURN 
+                labels(n)[0] as type, 
+                coalesce(n.name, n.deal_name, n.account_name_name, n.contact_name_name, n.first_name + ' ' + n.last_name, 'Unknown') as name,
+                n.source_id as entity_id,
+                relationship,
+                related_entity,
+                entity_content,
+                invoice.invoice_number as invoice_number,
+                invoice.status as invoice_status,
+                invoice.total as invoice_total,
+                invoice.balance as invoice_balance
+            LIMIT 50
             """
+        else:
+            query = """
             MATCH (n)
             WHERE (n.status = 'APPROVED' OR n.status IS NULL)
               AND ANY(keyword IN $keywords WHERE 
@@ -339,7 +406,12 @@ class GraphQueryService:
                 related_entity,
                 entity_content
             LIMIT 50
-            """,
+            """
+        
+        # Execute query
+        result = await self._run_sync(
+            self.driver.execute_query,
+            query,
             keywords=keywords,
             database_="neo4j",
         )
