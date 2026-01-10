@@ -96,13 +96,49 @@ async def router_node(state: AgentState) -> AgentState:
             
             graph_store = get_graph_store_service()
             
-            # Cypher Query: Suche nach Nodes mit source_id (CRM oder IoT)
+            # Smart Entity Resolution mit Relevanz-Scoring
+            # Sucht in: name, company, account_name_name, contact_name_name, first_name + last_name
             cypher_query = """
             MATCH (n)
-            WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
-            AND toLower($query) CONTAINS toLower(n.name)
-            RETURN n.source_id as source_id, n.name as name, labels(n)[0] as type
-            LIMIT 1
+            WHERE n.source_id STARTS WITH 'zoho_'
+            WITH n, $query as query
+            // Calculate relevance score based on multiple fields
+            WITH n, query,
+              CASE 
+                // Exact matches (highest score)
+                WHEN toLower(coalesce(n.name, '')) = toLower(query) THEN 100
+                WHEN toLower(coalesce(n.company, '')) = toLower(query) THEN 100
+                WHEN toLower(coalesce(n.account_name, '')) = toLower(query) THEN 100
+                // Full phrase matches
+                WHEN toLower(coalesce(n.name, '')) CONTAINS toLower(query) THEN 50
+                WHEN toLower(coalesce(n.company, '')) CONTAINS toLower(query) THEN 50
+                WHEN toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(query) THEN 50
+                // Partial word matches
+                WHEN ANY(word IN split(toLower(query), ' ') WHERE 
+                    toLower(coalesce(n.name, '')) CONTAINS word OR
+                    toLower(coalesce(n.company, '')) CONTAINS word OR
+                    toLower(coalesce(n.first_name, '')) CONTAINS word OR
+                    toLower(coalesce(n.last_name, '')) CONTAINS word
+                ) THEN 25
+                ELSE 0
+              END as match_score,
+              // Entity type priority (Contact/Account > Events/Tasks)
+              CASE labels(n)[0]
+                WHEN 'Contact' THEN 10
+                WHEN 'Account' THEN 9
+                WHEN 'Lead' THEN 8
+                WHEN 'Deal' THEN 7
+                WHEN 'User' THEN 6
+                ELSE 1
+              END as type_score
+            WHERE match_score > 0
+            RETURN 
+              n.source_id as source_id, 
+              coalesce(n.name, n.account_name, n.company, 'Unknown') as name,
+              labels(n)[0] as type,
+              (match_score + type_score) as total_score
+            ORDER BY total_score DESC
+            LIMIT 3
             """
             
             result = await graph_store.query(
@@ -111,16 +147,25 @@ async def router_node(state: AgentState) -> AgentState:
             )
             
             if result and len(result) > 0:
-                record = result[0]
-                source_id = record.get("source_id")
-                entity_name = record.get("name")
-                entity_type = record.get("type")
+                # Bester Match
+                best_match = result[0]
+                source_id = best_match.get("source_id")
+                entity_name = best_match.get("name")
+                entity_type = best_match.get("type")
+                best_score = best_match.get("total_score", 0)
                 
-                if source_id:
-                    logger.info(f"✅ Found entity: {entity_name} ({entity_type}) with ID: {source_id}")
+                # Check if match is confident (score > 60)
+                if best_score >= 60:
+                    logger.info(f"✅ Confident match: {entity_name} ({entity_type}) with ID: {source_id} [Score: {best_score}]")
                     state["crm_target"] = source_id
                 else:
-                    logger.debug("  ℹ️ No entities with source_id found")
+                    # Multiple candidates with similar scores - log for transparency
+                    logger.warning(f"⚠️ Uncertain match (Score: {best_score}): {entity_name} ({entity_type})")
+                    logger.info(f"  Other candidates: {[r.get('name') for r in result[1:]]}")
+                    
+                    # Use best match but note uncertainty in state
+                    state["crm_target"] = source_id
+                    state["entity_uncertain"] = True
             else:
                 logger.debug("  ℹ️ No entities found in query")
                 
@@ -207,14 +252,47 @@ async def knowledge_node(state: AgentState) -> AgentState:
             from app.services.graph_store import get_graph_store_service
             graph_store = get_graph_store_service()
             
-            # Query Graph für Entity IDs
+            # Smart Entity Resolution mit Relevanz-Scoring
             cypher_query = """
             MATCH (n)
-            WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
-            AND toLower($query) CONTAINS toLower(n.name)
-            RETURN n.source_id as source_id, 
-                   n.name as name, 
-                   labels(n)[0] as type
+            WHERE n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_'
+            WITH n, $query as query
+            // Calculate relevance score based on multiple fields
+            WITH n, query,
+              CASE 
+                // Exact matches (highest score)
+                WHEN toLower(coalesce(n.name, '')) = toLower(query) THEN 100
+                WHEN toLower(coalesce(n.company, '')) = toLower(query) THEN 100
+                WHEN toLower(coalesce(n.account_name, '')) = toLower(query) THEN 100
+                // Full phrase matches
+                WHEN toLower(coalesce(n.name, '')) CONTAINS toLower(query) THEN 50
+                WHEN toLower(coalesce(n.company, '')) CONTAINS toLower(query) THEN 50
+                WHEN toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(query) THEN 50
+                // Partial word matches
+                WHEN ANY(word IN split(toLower(query), ' ') WHERE 
+                    toLower(coalesce(n.name, '')) CONTAINS word OR
+                    toLower(coalesce(n.company, '')) CONTAINS word OR
+                    toLower(coalesce(n.first_name, '')) CONTAINS word OR
+                    toLower(coalesce(n.last_name, '')) CONTAINS word
+                ) THEN 25
+                ELSE 0
+              END as match_score,
+              // Entity type priority
+              CASE labels(n)[0]
+                WHEN 'Contact' THEN 10
+                WHEN 'Account' THEN 9
+                WHEN 'Lead' THEN 8
+                WHEN 'Deal' THEN 7
+                WHEN 'User' THEN 6
+                ELSE 1
+              END as type_score
+            WHERE match_score > 0
+            RETURN 
+              n.source_id as source_id,
+              coalesce(n.name, n.account_name, n.company, 'Unknown') as name,
+              labels(n)[0] as type,
+              (match_score + type_score) as total_score
+            ORDER BY total_score DESC
             LIMIT 5
             """
             
@@ -224,25 +302,46 @@ async def knowledge_node(state: AgentState) -> AgentState:
             )
             
             if entities:
-                logger.info(f"  ✅ Found {len(entities)} entities in graph")
+                logger.info(f"  ✅ Found {len(entities)} entity candidates in graph")
                 
-                # Extrahiere Entity IDs
-                for entity in entities:
-                    source_id = entity.get("source_id", "")
-                    entity_name = entity.get("name", "")
+                # Bester Match (höchster Score)
+                best_match = entities[0]
+                best_score = best_match.get("total_score", 0)
+                best_name = best_match.get("name", "")
+                best_type = best_match.get("type", "")
+                best_id = best_match.get("source_id", "")
+                
+                # Log alle Kandidaten für Transparenz
+                for i, entity in enumerate(entities):
+                    score = entity.get("total_score", 0)
+                    name = entity.get("name", "")
                     entity_type = entity.get("type", "")
+                    source_id = entity.get("source_id", "")
+                    marker = "✅ BEST" if i == 0 else f"  Alt #{i}"
+                    logger.info(f"    {marker}: {entity_type} '{name}' (Score: {score}) - {source_id}")
+                
+                # Check Confidence
+                if best_score >= 60:
+                    logger.info(f"  🎯 Confident match: {best_type} '{best_name}' (Score: {best_score})")
                     
-                    logger.info(f"    - {entity_type}: {entity_name} ({source_id})")
+                    # Kategorisiere beste Entity
+                    if best_id.startswith("zoho_"):
+                        entity_ids["crm"] = best_id
+                        state["crm_target"] = best_id
+                    elif best_id.startswith("iot_"):
+                        entity_ids["iot"] = best_id
+                else:
+                    logger.warning(f"  ⚠️ Low confidence match (Score: {best_score}): {best_type} '{best_name}'")
+                    logger.warning(f"  ℹ️ Consider asking user to clarify which entity they mean")
                     
-                    # Kategorisiere Entities
-                    if source_id.startswith("zoho_"):
-                        if "crm" not in entity_ids:  # Erste CRM-Entity
-                            entity_ids["crm"] = source_id
-                            state["crm_target"] = source_id
-                    
-                    elif source_id.startswith("iot_"):
-                        if "iot" not in entity_ids:  # Erste IoT-Entity
-                            entity_ids["iot"] = source_id
+                    # Verwende trotzdem beste Match aber markiere als unsicher
+                    if best_id.startswith("zoho_"):
+                        entity_ids["crm"] = best_id
+                        state["crm_target"] = best_id
+                        state["entity_uncertain"] = True
+                    elif best_id.startswith("iot_"):
+                        entity_ids["iot"] = best_id
+                        state["entity_uncertain"] = True
                 
                 if entity_ids:
                     logger.info(f"  🎯 Entity IDs extracted: {entity_ids}")
@@ -437,6 +536,25 @@ async def generation_node(state: AgentState) -> AgentState:
     # Sammle alle verfügbaren Informationen
     tool_outputs = state.get("tool_outputs", {})
     intent = state.get("intent", "general")
+    entity_uncertain = state.get("entity_uncertain", False)
+    
+    # CHECK: Wenn Entity Match unsicher ist, User um Klarstellung bitten
+    if entity_uncertain and state.get("crm_target"):
+        logger.warning("⚠️ Entity match was uncertain - asking user for clarification")
+        
+        # Hole den Namen der gefundenen Entity aus dem Graph Context
+        kb_result = tool_outputs.get("knowledge_result", "")
+        
+        clarification_message = """Ich habe mehrere mögliche Treffer gefunden und bin mir nicht ganz sicher, welche Person oder Firma Sie meinen. 
+
+Können Sie bitte präzisieren:
+- Meinen Sie einen Kontakt (Person) oder ein Unternehmen (Account)?
+- Falls möglich, können Sie den vollständigen Namen nennen?
+
+Das hilft mir, Ihnen die korrekten Informationen zu liefern."""
+        
+        state["messages"].append(AIMessage(content=clarification_message))
+        return state
     
     # Baue strukturierten Kontext für die Antwort
     context_parts = []
