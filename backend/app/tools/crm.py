@@ -19,7 +19,6 @@ _CHECK_CRM_STATUS_DESCRIPTION = get_prompt("tool_check_crm_status")
 
 @tool
 async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
-    __doc__ = _GET_CRM_FACTS_DESCRIPTION
     logger.info(f"🔧 CRM Tool: Getting facts for entity '{entity_id}'")
     logger.debug(f"Query context: {query_context}")
     
@@ -56,7 +55,6 @@ async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
 
 @tool
 def check_crm_status() -> str:
-    __doc__ = _CHECK_CRM_STATUS_DESCRIPTION
     logger.info("🔧 CRM Tool: Checking CRM status")
     
     if not is_crm_available():
@@ -85,3 +83,7 @@ def check_crm_status() -> str:
         logger.error(error_msg)
         return error_msg
 
+
+# Set docstrings after function definitions
+get_crm_facts.__doc__ = _GET_CRM_FACTS_DESCRIPTION
+check_crm_status.__doc__ = _CHECK_CRM_STATUS_DESCRIPTION

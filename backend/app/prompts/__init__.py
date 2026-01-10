@@ -104,9 +104,18 @@ def get_prompt(name: str) -> str:
 
 # Pre-load commonly used prompts at module import
 try:
+    # Core prompts
     PromptLoader.load("intent_classification")
     PromptLoader.load("sql_generation")
     PromptLoader.load("answer_generation")
+    
+    # Tool description prompts
+    PromptLoader.load("tool_search_knowledge_base")
+    PromptLoader.load("tool_get_crm_facts")
+    PromptLoader.load("tool_check_crm_status")
+    PromptLoader.load("tool_execute_sql_query")
+    PromptLoader.load("tool_get_sql_schema")
+    
     logger.info(f"✅ Prompts loaded: {PromptLoader.list_available()}")
 except Exception as e:
     logger.warning(f"⚠️ Failed to pre-load prompts: {e}")

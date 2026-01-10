@@ -23,7 +23,6 @@ _GET_SQL_SCHEMA_DESCRIPTION = get_prompt("tool_get_sql_schema")
 
 @tool
 def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
-    __doc__ = _EXECUTE_SQL_QUERY_DESCRIPTION
     logger.info(f"🔧 SQL Tool: Executing query on source '{source_id}'")
     logger.debug(f"Query: {query[:200]}...")
     
@@ -94,7 +93,6 @@ def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
 
 @tool
 def get_sql_schema(source_id: str = "erp_postgres", table_names: List[str] = None) -> str:
-    __doc__ = _GET_SQL_SCHEMA_DESCRIPTION
     logger.info(f"🔧 SQL Schema Tool: Getting schema for source '{source_id}'")
     if table_names:
         logger.debug(f"Tables requested: {table_names}")
@@ -183,3 +181,7 @@ def get_sql_schema(source_id: str = "erp_postgres", table_names: List[str] = Non
         logger.error(f"❌ Schema retrieval failed: {e}", exc_info=True)
         return error_msg
 
+
+# Set docstrings after function definitions
+execute_sql_query.__doc__ = _EXECUTE_SQL_QUERY_DESCRIPTION
+get_sql_schema.__doc__ = _GET_SQL_SCHEMA_DESCRIPTION

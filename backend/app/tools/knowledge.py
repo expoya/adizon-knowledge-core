@@ -21,7 +21,9 @@ _TOOL_DESCRIPTION = get_prompt("tool_search_knowledge_base")
 
 @tool
 async def search_knowledge_base(query: str) -> str:
-    __doc__ = _TOOL_DESCRIPTION
+    # Docstring wird dynamisch gesetzt
+    search_knowledge_base.__doc__ = _TOOL_DESCRIPTION
+    
     logger.info(f"🔧 Knowledge Tool: Searching for '{query[:80]}...'")
     
     # Initialisiere Services
@@ -86,3 +88,6 @@ async def search_knowledge_base(query: str) -> str:
     
     return final_result
 
+
+# Set docstring after function definition
+search_knowledge_base.__doc__ = _TOOL_DESCRIPTION
