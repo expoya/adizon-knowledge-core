@@ -122,12 +122,12 @@ async def router_node(state: AgentState) -> AgentState:
                 if entity_names:
                     logger.info(f"  ✅ LLM extracted {len(entity_names)} entity names: {entity_names}")
                 else:
-                    logger.debug("  ℹ️ No entity names extracted from query")
-                    return state
+                    logger.debug("  ℹ️ No entity names extracted from query - continuing without crm_target")
+                    entity_names = []  # Continue with empty list
                     
             except Exception as e:
-                logger.warning(f"  ⚠️ Entity extraction failed: {e}")
-                return state
+                logger.warning(f"  ⚠️ Entity extraction failed: {e} - continuing without crm_target")
+                entity_names = []  # Continue with empty list
             
             # STEP 2: Einfache Graph-Suche mit extrahierten Namen
             logger.info("🔍 Step 2: Searching graph for extracted entities...")
@@ -335,7 +335,7 @@ async def knowledge_node(state: AgentState) -> AgentState:
                     entity_names = []
                     
             except Exception as e:
-                logger.warning(f"    ⚠️ Entity extraction failed: {e}")
+                logger.warning(f"    ⚠️ Entity extraction failed: {e} - continuing without entity resolution")
                 entity_names = []
             
             # STEP 2b: Graph-Suche mit extrahierten Namen
