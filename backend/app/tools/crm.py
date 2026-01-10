@@ -19,6 +19,17 @@ _CHECK_CRM_STATUS_DESCRIPTION = get_prompt("tool_check_crm_status")
 
 @tool
 async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
+    """Holt LIVE Daten aus dem CRM-System für eine bestimmte Entity (z.B. Kunde, Lead, Deal).
+    
+    Nutzt die source_id aus dem Knowledge Graph um aktuelle CRM-Daten abzurufen.
+    
+    Args:
+        entity_id: Die CRM Entity ID (z.B. zoho_12345)
+        query_context: Optionaler Kontext über die Anfrage
+        
+    Returns:
+        Aktuelle CRM-Daten zur Entity
+    """
     logger.info(f"🔧 CRM Tool: Getting facts for entity '{entity_id}'")
     logger.debug(f"Query context: {query_context}")
     
@@ -55,6 +66,11 @@ async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
 
 @tool
 def check_crm_status() -> str:
+    """Prüft den Verbindungsstatus zum CRM-System.
+    
+    Returns:
+        Status-Nachricht über die CRM-Verbindung
+    """
     logger.info("🔧 CRM Tool: Checking CRM status")
     
     if not is_crm_available():
@@ -82,8 +98,3 @@ def check_crm_status() -> str:
         error_msg = f"❌ CRM Status-Check fehlgeschlagen: {str(e)}"
         logger.error(error_msg)
         return error_msg
-
-
-# Set docstrings after function definitions
-get_crm_facts.__doc__ = _GET_CRM_FACTS_DESCRIPTION
-check_crm_status.__doc__ = _CHECK_CRM_STATUS_DESCRIPTION

@@ -23,6 +23,17 @@ _GET_SQL_SCHEMA_DESCRIPTION = get_prompt("tool_get_sql_schema")
 
 @tool
 def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
+    """Führt eine SQL SELECT Query auf einer externen Datenbank aus (z.B. IoT, ERP).
+    
+    Nur SELECT Queries sind erlaubt (keine INSERT, UPDATE, DELETE).
+    
+    Args:
+        query: Die SQL SELECT Query
+        source_id: Die ID der Datenquelle (z.B. "iot_database", "erp_postgres")
+        
+    Returns:
+        Query-Ergebnisse als JSON
+    """
     logger.info(f"🔧 SQL Tool: Executing query on source '{source_id}'")
     logger.debug(f"Query: {query[:200]}...")
     
@@ -93,6 +104,17 @@ def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
 
 @tool
 def get_sql_schema(source_id: str = "erp_postgres", table_names: List[str] = None) -> str:
+    """Holt das Datenbank-Schema (Tabellen, Spalten, Keys) einer SQL-Datenquelle.
+    
+    Hilfreich um zu verstehen welche Daten verfügbar sind bevor eine Query geschrieben wird.
+    
+    Args:
+        source_id: Die ID der Datenquelle (z.B. "iot_database", "erp_postgres")
+        table_names: Optional - Liste von Tabellen-Namen (wenn leer, werden alle Tabellen zurückgegeben)
+        
+    Returns:
+        Datenbank-Schema als formatierter Text
+    """
     logger.info(f"🔧 SQL Schema Tool: Getting schema for source '{source_id}'")
     if table_names:
         logger.debug(f"Tables requested: {table_names}")
@@ -180,8 +202,3 @@ def get_sql_schema(source_id: str = "erp_postgres", table_names: List[str] = Non
         error_msg = f"Error retrieving schema: {str(e)}"
         logger.error(f"❌ Schema retrieval failed: {e}", exc_info=True)
         return error_msg
-
-
-# Set docstrings after function definitions
-execute_sql_query.__doc__ = _EXECUTE_SQL_QUERY_DESCRIPTION
-get_sql_schema.__doc__ = _GET_SQL_SCHEMA_DESCRIPTION

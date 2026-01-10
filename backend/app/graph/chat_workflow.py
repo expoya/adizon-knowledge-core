@@ -4,7 +4,7 @@ Knowledge Orchestrator mit optionalem CRM Access.
 """
 
 import logging
-from typing import List, TypedDict
+from typing import Dict, List, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph

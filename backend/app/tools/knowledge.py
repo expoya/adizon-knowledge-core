@@ -21,8 +21,18 @@ _TOOL_DESCRIPTION = get_prompt("tool_search_knowledge_base")
 
 @tool
 async def search_knowledge_base(query: str) -> str:
-    # Docstring wird dynamisch gesetzt
-    search_knowledge_base.__doc__ = _TOOL_DESCRIPTION
+    """Durchsucht die interne Wissensdatenbank (Vector Store + Knowledge Graph) nach relevanten Informationen.
+    
+    Diese Funktion führt eine hybride Suche durch:
+    1. Vector Search: Findet semantisch ähnliche Dokument-Abschnitte
+    2. Graph Query: Findet relevante Entities und deren Beziehungen
+    
+    Args:
+        query: Die Suchanfrage oder Frage
+        
+    Returns:
+        Kombinierte Ergebnisse aus Vector Store und Knowledge Graph
+    """
     
     logger.info(f"🔧 Knowledge Tool: Searching for '{query[:80]}...'")
     

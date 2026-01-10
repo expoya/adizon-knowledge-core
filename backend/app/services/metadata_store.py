@@ -257,16 +257,20 @@ class MetadataService:
         # Sort by priority (lower number = higher priority), then by score
         scored_sources.sort(key=lambda x: (x[0].priority, -x[1]))
         
-        # Extract sources (drop scores)
-        result = [source for source, _ in scored_sources[:max_sources]]
-        
-        # Knowledge Graph immer dabei (wenn strategy sagt so)
+        # Knowledge Graph immer dabei (wenn strategy sagt so) - VOR max_sources
+        result = []
         if self.strategy.get("always_check_graph", True):
             kb_source = self.get_source_by_id("knowledge_base")
             if kb_source and kb_source.is_available():
-                if kb_source not in result:
-                    result.insert(0, kb_source)  # An erster Stelle
-                    logger.debug("  ℹ️ Added knowledge_base (always check graph)")
+                result.append(kb_source)
+                logger.debug("  ℹ️ Added knowledge_base (always check graph)")
+        
+        # Add other sources up to max_sources limit
+        for source, score in scored_sources:
+            if len(result) >= max_sources:
+                break
+            if source not in result:  # Skip if kb is already in result
+                result.append(source)
         
         if result:
             logger.info(f"✅ Selected {len(result)} sources: {[s.id for s in result]}")
