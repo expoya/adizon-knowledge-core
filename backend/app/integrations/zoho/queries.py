@@ -138,6 +138,47 @@ async def query_deals(client: ZohoClient, zoho_id: str) -> str:
     return "### 💰 Deals\n*(Query failed)*"
 
 
+async def query_notes(client: ZohoClient, zoho_id: str) -> str:
+    """
+    Queries Notes for an entity (Contact, Account, Lead, Deal).
+    
+    Args:
+        client: ZohoClient instance
+        zoho_id: Zoho record ID (without "zoho_" prefix)
+        
+    Returns:
+        Markdown formatted section or empty string
+    """
+    try:
+        # Notes use Parent_Id which can point to any module
+        # We try to fetch notes via REST API Related Lists
+        query = f"SELECT Note_Title, Note_Content, Created_Time FROM Notes WHERE Parent_Id.id = '{zoho_id}' ORDER BY Created_Time DESC LIMIT 20"
+        response = await client.post("/crm/v6/coql", json={"select_query": query})
+        notes = response.get("data", [])
+        
+        if notes:
+            section = ["### 📝 Notizen\n"]
+            for note in notes:
+                title = note.get("Note_Title", "Ohne Titel")
+                content = note.get("Note_Content", "")
+                created = note.get("Created_Time", "N/A")
+                
+                # Truncate long content
+                if content and len(content) > 200:
+                    content = content[:200] + "..."
+                
+                section.append(f"- **{title}** ({created})")
+                if content:
+                    section.append(f"  {content}")
+            
+            return "\n".join(section)
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Notes query failed: {e}")
+    
+    return ""  # Return empty string if no notes (not an error)
+
+
 async def search_live_facts(client: ZohoClient, entity_id: str, query_context: str) -> str:
     """
     Retrieves live facts about a Zoho entity.
@@ -165,6 +206,11 @@ async def search_live_facts(client: ZohoClient, entity_id: str, query_context: s
     # Collect results from all queries
     sections = []
     
+    # Query Notes
+    notes_section = await query_notes(client, zoho_id)
+    if notes_section:
+        sections.append(notes_section)
+    
     # Query Einwände
     einwaende_section = await query_einwaende(client, zoho_id)
     if einwaende_section:
@@ -188,7 +234,7 @@ async def search_live_facts(client: ZohoClient, entity_id: str, query_context: s
         return f"""
 # Live Facts for Entity: {entity_id}
 
-No data found across all modules (Einwände, Calendly Events, Deals).
+No data found across all modules (Notes, Einwände, Calendly Events, Deals).
 
 Query Context: {query_context}
 """

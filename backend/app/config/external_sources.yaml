@@ -491,7 +491,7 @@ selection_strategy:
   # - WORKS_AT (796): Contacts arbeiten bei Accounts
   # - ASSOCIATED_WITH (430): Contact-zu-Lead Verbindungen
   # - HAS_DEAL (299): Deals verbunden mit Accounts
-  # - HAS_INVOICE (1): Invoices verbunden mit Accounts
+  # - HAS_INVOICE (150+): BooksInvoices verbunden mit Accounts via zcrm_account_id
 
 # ==========================================
 # Beispiel-Queries und erwartete Sources

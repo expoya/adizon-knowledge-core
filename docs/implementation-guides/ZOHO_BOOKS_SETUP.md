@@ -192,9 +192,8 @@ POST /api/v1/crm-sync
 }
 ```
 
-**Hinweis:** "Invoice" erscheint 2x (CRM + Books), haben aber unterschiedliche `source_id`:
-- CRM: `zoho_506156000001234567`
-- Books: `zoho_books_invoice_987654321`
+**Hinweis:** Nur BooksInvoices werden importiert. Das alte CRM "Invoices" Modul (nur 1 Testdatensatz) wurde entfernt.
+- Books: `zoho_books_invoice_987654321` (Label: BooksInvoice)
 
 ---
 
@@ -202,19 +201,13 @@ POST /api/v1/crm-sync
 
 ### Query 1: Invoices zählen
 ```cypher
-MATCH (i:Invoice)
-RETURN 
-  CASE 
-    WHEN i.source_id STARTS WITH 'zoho_books_invoice_' THEN 'Books Invoice'
-    ELSE 'CRM Invoice'
-  END AS type,
-  count(*) AS count
+MATCH (i:BooksInvoice)
+RETURN count(*) AS total_invoices
 ```
 
 **Erwartung:**
 ```
-Books Invoice  | 150
-CRM Invoice    | 1
+total_invoices | 150+
 ```
 
 ### Query 2: Subscriptions prüfen
@@ -224,14 +217,15 @@ RETURN s.name, s.status, s.amount, s.customer_name
 LIMIT 10
 ```
 
-### Query 3: Relations prüfen
+### Query 3: Relations prüfen (Account → BooksInvoice)
 ```cypher
-MATCH (a:Account)-[:HAS_INVOICE]->(i:Invoice)
-WHERE i.source_id STARTS WITH 'zoho_books_invoice_'
+MATCH (a:Account)-[:HAS_INVOICE]->(i:BooksInvoice)
 RETURN a.name AS account, count(i) AS invoices
 ORDER BY invoices DESC
 LIMIT 10
 ```
+
+**Erwartung:** Nur Accounts mit gemappten Books Customers (via zcrm_account_id) haben Invoices.
 
 ---
 
@@ -291,14 +285,16 @@ GET /billing/v1/subscriptions
 
 ## ⚠️ Bekannte Limitierungen
 
-### 1. Customer Matching
+### 1. Customer Matching ✅ GELÖST
 Books `customer_id` ≠ CRM Account `id` in den meisten Fällen!
 
 **Problem:** Books Customers und CRM Accounts sind separate Entities.
 
-**Lösung (später):**
-- Matching via `customer_name` oder Email
-- Oder: Separate "Customer" Nodes erstellen
+**Lösung (IMPLEMENTIERT):**
+- ✅ Books Contacts API liefert `zcrm_account_id` Feld
+- ✅ Mapping wird beim Import erstellt: `customer_id` → `zcrm_account_id`
+- ✅ BooksInvoices werden korrekt mit CRM Accounts verknüpft
+- ⚠️ Nur Customers mit aktiver CRM-Sync haben `zcrm_account_id`
 
 ### 2. Smoke Test Modus
 Aktuell: `max_pages=1` → Nur ~200 Invoices/Subscriptions

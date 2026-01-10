@@ -103,15 +103,8 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
         ],
         "use_rest_api": True  # COQL doesn't return lookup fields properly
     },
-    "Invoices": {
-        "label": "Invoice",
-        "module_name": "Invoices",
-        "fields": ["id", "Subject", "Account_Name", "Grand_Total", "Status", "Invoice_Date"],
-        "relations": [
-            {"field": "Account_Name", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
-        ],
-        "use_rest_api": True  # Finance module uses REST API, not COQL
-    },
+    # NOTE: CRM "Invoices" module removed - only 1 test record, not useful
+    # Using BooksInvoices instead (professional invoice data from Zoho Books)
     "Subscriptions": {
         "label": "Subscription",
         "module_name": "Subscriptions",
@@ -134,7 +127,7 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
     
     # Zoho Books Modules (separate from CRM)
     "BooksInvoices": {
-        "label": "BooksInvoice",  # Unique label to avoid conflict with CRM Invoices
+        "label": "BooksInvoice",  # Professional invoice data from Zoho Books
         "module_name": "BooksInvoices",  # Logical name
         "fields": ["invoice_id", "invoice_number", "customer_name", "total", "status", "date"],
         "relations": [
@@ -144,15 +137,6 @@ SCHEMA_MAPPING: Dict[str, Dict[str, Any]] = {
     },
     
     # Aliases for alternative naming (module names vs friendly names)
-    "Zoho_Books": {  # Alias for Invoices (old name)
-        "label": "Invoice",
-        "module_name": "Invoices",
-        "fields": ["id", "Subject", "Account_Name", "Grand_Total", "Status", "Invoice_Date"],
-        "relations": [
-            {"field": "Account_Name", "edge": "HAS_INVOICE", "target_label": "Account", "direction": "INCOMING"}
-        ],
-        "use_rest_api": True
-    },
     "Einw_nde": {  # Alias for Einwaende
         "label": "Einwand",
         "module_name": "Einw_nde",
@@ -215,8 +199,8 @@ def get_all_entity_types() -> list[str]:
         "Events",              # calendlyforzohocrm__Calendly_Events
         "Einwaende",           # Einw_nde
         "Attachments",
-        "Invoices",            # CRM Invoices (simple)
-        "BooksInvoices",       # Zoho Books Invoices (professional)
+        # NOTE: CRM "Invoices" removed - only 1 test record
+        "BooksInvoices",       # Zoho Books Invoices (professional, 150+ records)
         # NOTE: Emails are fetched via Related Lists (after Accounts & Contacts)
     ]
 

@@ -178,9 +178,16 @@ class ZohoCRMProvider(CRMProvider):
                     
                     # Fetch from Books API
                     if entity_type == "BooksInvoices":
+                        # STEP 1: Build customer → account mapping
+                        customer_mapping = await self.books_client.build_customer_to_account_mapping()
+                        logger.info(f"    🔗 Built customer mapping: {len(customer_mapping)} Books customers → CRM accounts")
+                        
+                        # STEP 2: Fetch invoices with mapping
                         data = await self.books_client.fetch_all_invoices(max_pages=3)  # 3 pages × 200 = 600 max
+                        
+                        # STEP 3: Process invoices with mapping
                         for record in data:
-                            results.append(process_books_invoice(record, label))
+                            results.append(process_books_invoice(record, label, customer_mapping))
                     else:
                         logger.warning(f"    ⚠️ Unknown Books module: {entity_type}")
                         continue

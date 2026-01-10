@@ -126,16 +126,20 @@ Notizen zu Kontakten, Deals, etc.
 
 ### Sales & Finance Entities
 
-#### 9. **Invoice** 🧾
-Rechnungen (aus Zoho Books).
+#### 9. **BooksInvoice** 🧾
+Rechnungen aus Zoho Books (professionelles Buchhaltungssystem).
+
+**Hinweis:** Das alte CRM "Invoices" Modul (nur 1 Testdatensatz) wird nicht mehr importiert.
 
 ```cypher
-(:Invoice {
-  source_id: "zoho_77777",
+(:BooksInvoice {
+  source_id: "zoho_books_invoice_123456",
   name: "INV-2026-001",
+  invoice_number: "INV-2026-001",
   total: 5000.00,
-  status: "Paid",
-  zoho_id: "77777"
+  status: "paid",
+  customer_name: "ACME Corp",
+  zoho_books_id: "123456"
 })
 ```
 
@@ -297,13 +301,15 @@ Einwände bei Leads.
 ### Finance
 
 #### HAS_INVOICE
-Rechnungen zu Accounts.
+Rechnungen zu Accounts (via Zoho Books zcrm_account_id Mapping).
 
 ```cypher
-(:Account)-[:HAS_INVOICE]->(:Invoice)
+(:Account)-[:HAS_INVOICE]->(:BooksInvoice)
 ```
 
 **Direction:** `INCOMING`
+
+**Hinweis:** Die Verknüpfung erfolgt über das `zcrm_account_id` Feld aus Zoho Books Contacts (Customers), welches auf die CRM Account ID verweist.
 
 #### HAS_SUBSCRIPTION
 Abonnements zu Accounts.

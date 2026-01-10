@@ -239,13 +239,17 @@ class GraphQueryService:
         CRM entities use various name fields (deal_name, account_name_name, contact_name_name).
         We search across ALL string properties to find matches.
         
+        IMPORTANT: Queries BOTH outgoing AND incoming relationships to capture:
+        - Outgoing: Contact → Account (WORKS_AT)
+        - Incoming: Note → Contact (HAS_NOTE), Task → Contact (HAS_TASK), etc.
+        
         Args:
             keywords: List of keywords to search
             
         Returns:
-            Query result
+            Query result with both relationship directions
         """
-        # Search across ALL properties (name, deal_name, account_name_name, etc.)
+        # Search across ALL properties and get BOTH relationship directions
         result = await self._run_sync(
             self.driver.execute_query,
             """
@@ -261,56 +265,49 @@ class GraphQueryService:
                   OR toLower(coalesce(n.last_name, '')) CONTAINS toLower(keyword)
               )
             WITH n LIMIT 10
-            OPTIONAL MATCH (n)-[r]->(m)
-            WHERE (m.status = 'APPROVED' OR m.status IS NULL)
-              AND (r.status = 'APPROVED' OR r.status IS NULL)
+            
+            CALL {
+                WITH n
+                OPTIONAL MATCH (n)-[r_out]->(m_out)
+                WHERE (m_out.status = 'APPROVED' OR m_out.status IS NULL)
+                  AND (r_out.status = 'APPROVED' OR r_out.status IS NULL)
+                RETURN 
+                    type(r_out) as relationship,
+                    coalesce(m_out.name, m_out.deal_name, m_out.account_name_name, m_out.contact_name_name, m_out.first_name + ' ' + m_out.last_name, m_out.note_title, m_out.subject) as related_entity,
+                    coalesce(m_out.note_content, m_out.description, '') as entity_content
+                
+                UNION ALL
+                
+                WITH n
+                OPTIONAL MATCH (m_in)-[r_in]->(n)
+                WHERE (m_in.status = 'APPROVED' OR m_in.status IS NULL)
+                  AND (r_in.status = 'APPROVED' OR r_in.status IS NULL)
+                RETURN 
+                    type(r_in) as relationship,
+                    coalesce(m_in.name, m_in.deal_name, m_in.account_name_name, m_in.contact_name_name, m_in.first_name + ' ' + m_in.last_name, m_in.note_title, m_in.subject) as related_entity,
+                    coalesce(m_in.note_content, m_in.description, '') as entity_content
+            }
+            
             RETURN 
                 labels(n)[0] as type, 
                 coalesce(n.name, n.deal_name, n.account_name_name, n.contact_name_name, n.first_name + ' ' + n.last_name, 'Unknown') as name,
                 n.source_id as entity_id,
-                type(r) as relationship, 
-                coalesce(m.name, m.deal_name, m.account_name_name, m.contact_name_name, m.first_name + ' ' + m.last_name) as related_to
-            LIMIT 30
+                relationship,
+                related_entity,
+                entity_content
+            LIMIT 50
             """,
             keywords=keywords,
             database_="neo4j",
         )
-
-        # If no results, try incoming relationships
-        if not result.records:
-            logger.info("No outgoing relationships found, trying incoming")
-            result = await self._run_sync(
-                self.driver.execute_query,
-                """
-                MATCH (n)<-[r]-(m)
-                WHERE (n.status = 'APPROVED' OR n.status IS NULL)
-                  AND (m.status = 'APPROVED' OR m.status IS NULL)
-                  AND (r.status = 'APPROVED' OR r.status IS NULL)
-                  AND ANY(keyword IN $keywords WHERE 
-                      toLower(coalesce(n.name, '')) CONTAINS toLower(keyword)
-                      OR toLower(coalesce(n.deal_name, '')) CONTAINS toLower(keyword)
-                      OR toLower(coalesce(n.account_name_name, '')) CONTAINS toLower(keyword)
-                      OR toLower(coalesce(n.contact_name_name, '')) CONTAINS toLower(keyword)
-                      OR toLower(coalesce(n.first_name, '')) CONTAINS toLower(keyword)
-                      OR toLower(coalesce(n.last_name, '')) CONTAINS toLower(keyword)
-                  )
-                RETURN 
-                    labels(n)[0] as type, 
-                    coalesce(n.name, n.deal_name, n.account_name_name, n.contact_name_name, n.first_name + ' ' + n.last_name, 'Unknown') as name,
-                    n.source_id as entity_id,
-                    type(r) as relationship, 
-                    coalesce(m.name, m.deal_name, m.account_name_name, m.contact_name_name) as related_from
-                LIMIT 30
-                """,
-                keywords=keywords,
-                database_="neo4j",
-            )
         
         return result
     
     def _format_results(self, records) -> List[str]:
         """
         Format query results as readable text with entity IDs for CRM fact lookup.
+        
+        Includes relationship information and content snippets from Notes/Tasks.
         
         Args:
             records: Neo4j result records
@@ -327,14 +324,23 @@ class GraphQueryService:
             name = data.get("name", "Unknown")
             entity_id = data.get("entity_id")  # CRM source_id
             rel = data.get("relationship")
-            related = data.get("related_to") or data.get("related_from")
+            related = data.get("related_entity") or data.get("related_to") or data.get("related_from")
+            content = data.get("entity_content", "")
             
             # Include entity_id for CRM entities so the tool can fetch live facts
             if rel and related:
+                # Build base relationship line
                 if entity_id:
                     line = f"- {entity_type} '{name}' (ID: {entity_id}) {rel} '{related}'"
                 else:
                     line = f"- {entity_type} '{name}' {rel} '{related}'"
+                
+                # Add content preview for Notes/Tasks (first 100 chars)
+                if content and len(content.strip()) > 0:
+                    content_preview = content.strip()[:100]
+                    if len(content) > 100:
+                        content_preview += "..."
+                    line += f" | Content: {content_preview}"
             else:
                 if entity_id:
                     line = f"- {entity_type}: {name} (ID: {entity_id})"

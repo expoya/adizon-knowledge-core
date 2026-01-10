@@ -62,8 +62,7 @@ GET /api/health
 | **User** | 5 - 50 | Zoho CRM Users |
 | **Objection** | 1.000 - 5.000 | Einwände |
 | **Calendly_Event** | 500 - 3.000 | Meetings |
-| **Invoice** | 1.000 - 5.000 | CRM Rechnungen |
-| **BooksInvoice** | 1.000 - 10.000 | Books Rechnungen |
+| **BooksInvoice** | 150 - 1.000 | Books Rechnungen (echte Daten) |
 | **Task** | 2.000 - 10.000 | Aufgaben |
 | **Note** | 1.000 - 5.000 | Notizen |
 | **Attachment** | 500 - 3.000 | Anhänge |
