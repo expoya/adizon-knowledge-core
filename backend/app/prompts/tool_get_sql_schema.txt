@@ -1,0 +1,18 @@
+Holt detaillierte Schema-Informationen für Tabellen der ERP/Finance-Datenbank.
+
+VERWENDE DIESES TOOL NUR FÜR:
+- ERP/Finance-Tabellen: Rechnungen, Zahlungen, Buchhaltung
+
+NICHT FÜR CRM-DATEN (diese sind im Neo4j Knowledge Graph).
+
+Liefert Spaltennamen, Datentypen und weitere Metadaten. Diese Informationen
+sind präziser als die Beschreibungen im Metadata Store und helfen dem LLM
+beim Schreiben korrekter SQL Queries.
+
+Args:
+    source_id: Die ID der Datenquelle (default: "erp_postgres")
+    table_names: Liste der Tabellennamen (None = alle Tabellen)
+    
+Returns:
+    Schema-Informationen als formatierter String
+

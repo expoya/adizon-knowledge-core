@@ -11,34 +11,19 @@ from langchain_core.tools import tool
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
+from app.prompts import get_prompt
 from app.services.sql_connector import get_sql_connector_service
 
 logger = logging.getLogger(__name__)
 
+# Load tool descriptions from prompts folder
+_EXECUTE_SQL_QUERY_DESCRIPTION = get_prompt("tool_execute_sql_query")
+_GET_SQL_SCHEMA_DESCRIPTION = get_prompt("tool_get_sql_schema")
+
 
 @tool
 def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
-    """
-    Führt eine SQL Query auf der ERP/Finance-Datenbank aus.
-    
-    VERWENDE DIESES TOOL NUR FÜR:
-    - Finanzielle Daten: Rechnungen, Zahlungen, Buchhaltung
-    - ERP-System-Daten: Transaktionen, Finanztransaktionen
-    
-    VERWENDE NICHT FÜR:
-    - CRM-Daten (Kunden, Accounts, Leads, Deals, Kontakte, Einwände)
-    - Diese sind im Knowledge Graph verfügbar (search_knowledge_base Tool)
-    
-    WICHTIG: Verwende nur SELECT Queries! Keine INSERT, UPDATE, DELETE.
-    Die Query sollte sicher und validiert sein.
-    
-    Args:
-        query: Die SQL Query (nur SELECT erlaubt)
-        source_id: Die ID der Datenquelle (default: "erp_postgres")
-        
-    Returns:
-        Die Ergebnisse als JSON-formatierter String oder eine Fehlermeldung
-    """
+    __doc__ = _EXECUTE_SQL_QUERY_DESCRIPTION
     logger.info(f"🔧 SQL Tool: Executing query on source '{source_id}'")
     logger.debug(f"Query: {query[:200]}...")
     
@@ -109,25 +94,7 @@ def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
 
 @tool
 def get_sql_schema(source_id: str = "erp_postgres", table_names: List[str] = None) -> str:
-    """
-    Holt detaillierte Schema-Informationen für Tabellen der ERP/Finance-Datenbank.
-    
-    VERWENDE DIESES TOOL NUR FÜR:
-    - ERP/Finance-Tabellen: Rechnungen, Zahlungen, Buchhaltung
-    
-    NICHT FÜR CRM-DATEN (diese sind im Neo4j Knowledge Graph).
-    
-    Liefert Spaltennamen, Datentypen und weitere Metadaten. Diese Informationen
-    sind präziser als die Beschreibungen im Metadata Store und helfen dem LLM
-    beim Schreiben korrekter SQL Queries.
-    
-    Args:
-        source_id: Die ID der Datenquelle (default: "erp_postgres")
-        table_names: Liste der Tabellennamen (None = alle Tabellen)
-        
-    Returns:
-        Schema-Informationen als formatierter String
-    """
+    __doc__ = _GET_SQL_SCHEMA_DESCRIPTION
     logger.info(f"🔧 SQL Schema Tool: Getting schema for source '{source_id}'")
     if table_names:
         logger.debug(f"Tables requested: {table_names}")

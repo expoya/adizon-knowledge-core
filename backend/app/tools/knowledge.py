@@ -9,36 +9,19 @@ from typing import Annotated
 from langchain_core.tools import tool
 
 from app.core.config import VECTOR_COLLECTION_NAME
+from app.prompts import get_prompt
 from app.services.graph_store import GraphStoreService, get_graph_store_service
 from app.services.vector_store import VectorStoreService, get_vector_store_service
 
 logger = logging.getLogger(__name__)
 
+# Load tool description from prompts folder
+_TOOL_DESCRIPTION = get_prompt("tool_search_knowledge_base")
+
 
 @tool
 async def search_knowledge_base(query: str) -> str:
-    """
-    Durchsucht die interne Wissensdatenbank nach relevanten Informationen.
-    
-    Enthält:
-    - CRM-Daten: Accounts (Kunden), Leads (Interessenten), Deals (Geschäfte), 
-      Contacts (Kontakte), Einwände/Objections, Meetings, User/Owner-Informationen
-    - Dokumente: PDF-Dateien, Prozessbeschreibungen, Konzepte, Erklärungen
-    
-    Kombiniert Vektor-Suche (für Textabschnitte) und Graph-Suche (für Entitäten
-    und Beziehungen) zu einem umfassenden Kontext-String.
-    
-    VERWENDE DIESES TOOL FÜR:
-    - Fragen zu Kunden, Accounts, Leads, Deals, Kontakten
-    - Fragen zu Einwänden, Objections, Meetings
-    - Fragen zu Dokumenten, Prozessen, Konzepten
-    
-    Args:
-        query: Die Suchanfrage des Benutzers
-        
-    Returns:
-        Ein formatierter String mit gefundenem Wissen aus Vector Store und Graph Store
-    """
+    __doc__ = _TOOL_DESCRIPTION
     logger.info(f"🔧 Knowledge Tool: Searching for '{query[:80]}...'")
     
     # Initialisiere Services

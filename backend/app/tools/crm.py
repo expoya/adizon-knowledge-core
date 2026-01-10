@@ -7,48 +7,19 @@ import logging
 
 from langchain_core.tools import tool
 
+from app.prompts import get_prompt
 from app.services.crm_factory import get_crm_provider, is_crm_available
 
 logger = logging.getLogger(__name__)
 
+# Load tool descriptions from prompts folder
+_GET_CRM_FACTS_DESCRIPTION = get_prompt("tool_get_crm_facts")
+_CHECK_CRM_STATUS_DESCRIPTION = get_prompt("tool_check_crm_status")
+
 
 @tool
 async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
-    """
-    Holt Live-Fakten über eine Entity aus dem CRM-System (Zoho CRM + Zoho Books).
-    
-    Ruft aktuelle Informationen zu einer Person oder Firma ab:
-    - Einwände (Objections)
-    - Calendly Events (Meetings)
-    - Deals (Geschäfte)
-    - Rechnungen (Invoices aus Zoho Books)
-    - Subscriptions (Abonnements)
-    - Offene Posten und Zahlungsstatus
-    
-    WICHTIG: Nutze dieses Tool für ALLE finanziellen CRM-Daten!
-    Es gibt KEIN separates ERP-System - alle Rechnungen sind in Zoho Books.
-    
-    Args:
-        entity_id: Die CRM Entity ID (z.B. "zoho_3652397000000649013")
-        query_context: Kontext über welche Informationen gebraucht werden
-                      (z.B. "invoices and payment status", "subscriptions")
-        
-    Returns:
-        Formatierter String mit aktuellen CRM-Daten oder Fehlermeldung
-        
-    Example:
-        >>> get_crm_facts("zoho_123456", "invoices and payment status")
-        '''
-        # Live Facts for Entity: zoho_123456
-        
-        ### 💰 Deals
-        - **Solar Installation**: €50,000.00 | Proposal | Close: 2026-02-01
-        
-        ### 🧾 Rechnungen (Zoho Books)
-        - **INV-001**: €12,500.00 | Bezahlt | 2025-12-15
-        ...
-        '''
-    """
+    __doc__ = _GET_CRM_FACTS_DESCRIPTION
     logger.info(f"🔧 CRM Tool: Getting facts for entity '{entity_id}'")
     logger.debug(f"Query context: {query_context}")
     
@@ -85,16 +56,7 @@ async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
 
 @tool
 def check_crm_status() -> str:
-    """
-    Prüft ob ein CRM-System konfiguriert und erreichbar ist.
-    
-    Returns:
-        Status-String mit Provider-Name oder Fehlermeldung
-        
-    Example:
-        >>> check_crm_status()
-        "✅ CRM verbunden: Zoho CRM"
-    """
+    __doc__ = _CHECK_CRM_STATUS_DESCRIPTION
     logger.info("🔧 CRM Tool: Checking CRM status")
     
     if not is_crm_available():

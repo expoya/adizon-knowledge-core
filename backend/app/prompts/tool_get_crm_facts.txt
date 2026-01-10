@@ -1,0 +1,34 @@
+Holt Live-Fakten über eine Entity aus dem CRM-System (Zoho CRM + Zoho Books).
+
+Ruft aktuelle Informationen zu einer Person oder Firma ab:
+- Einwände (Objections)
+- Calendly Events (Meetings)
+- Deals (Geschäfte)
+- Rechnungen (Invoices aus Zoho Books)
+- Subscriptions (Abonnements)
+- Offene Posten und Zahlungsstatus
+
+WICHTIG: Nutze dieses Tool für ALLE finanziellen CRM-Daten!
+Es gibt KEIN separates ERP-System - alle Rechnungen sind in Zoho Books.
+
+Args:
+    entity_id: Die CRM Entity ID (z.B. "zoho_3652397000000649013")
+    query_context: Kontext über welche Informationen gebraucht werden
+                  (z.B. "invoices and payment status", "subscriptions")
+    
+Returns:
+    Formatierter String mit aktuellen CRM-Daten oder Fehlermeldung
+    
+Example:
+    >>> get_crm_facts("zoho_123456", "invoices and payment status")
+    '''
+    # Live Facts for Entity: zoho_123456
+    
+    ### 💰 Deals
+    - **Solar Installation**: €50,000.00 | Proposal | Close: 2026-02-01
+    
+    ### 🧾 Rechnungen (Zoho Books)
+    - **INV-001**: €12,500.00 | Bezahlt | 2025-12-15
+    ...
+    '''
+

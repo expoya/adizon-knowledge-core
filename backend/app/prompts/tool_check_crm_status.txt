@@ -1,0 +1,9 @@
+Prüft ob ein CRM-System konfiguriert und erreichbar ist.
+
+Returns:
+    Status-String mit Provider-Name oder Fehlermeldung
+    
+Example:
+    >>> check_crm_status()
+    "✅ CRM verbunden: Zoho CRM"
+
