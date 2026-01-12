@@ -227,11 +227,26 @@ class ZohoBooksClient:
         
         # DEBUG: Log first contact to see all available fields
         if contacts:
-            logger.info(f"    🔍 DEBUG: First contact fields: {list(contacts[0].keys())}")
-            # Log sample contact but truncate large fields
-            sample = {k: str(v)[:100] if isinstance(v, str) and len(str(v)) > 100 else v 
-                     for k, v in contacts[0].items()}
-            logger.info(f"    🔍 DEBUG: Sample contact: {sample}")
+            logger.info(f"    🔍 DEBUG: First contact (LIST API) fields: {list(contacts[0].keys())}")
+            
+            # CRITICAL: Try fetching DETAILED contact to see if zcrm_account_id is there
+            try:
+                first_contact_id = contacts[0].get("contact_id")
+                if first_contact_id:
+                    logger.info(f"    🔍 DEBUG: Fetching DETAILED contact {first_contact_id}...")
+                    detail_endpoint = f"/books/v3/contacts/{first_contact_id}"
+                    detail_params = {"organization_id": self.organization_id}
+                    detail_response = await self.client.get(detail_endpoint, params=detail_params)
+                    detailed_contact = detail_response.get("contact", {})
+                    
+                    logger.info(f"    🔍 DEBUG: Detailed contact fields: {list(detailed_contact.keys())}")
+                    
+                    # Check for CRM-related fields
+                    crm_fields = {k: v for k, v in detailed_contact.items() 
+                                 if 'crm' in k.lower() or 'account' in k.lower() or 'zoho' in k.lower()}
+                    logger.info(f"    🔍 DEBUG: CRM/Account fields in DETAIL: {crm_fields}")
+            except Exception as e:
+                logger.warning(f"    ⚠️ Could not fetch detailed contact: {e}")
         
         for idx, contact in enumerate(contacts):
             contact_id = contact.get("contact_id")
