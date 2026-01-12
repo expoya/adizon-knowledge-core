@@ -71,14 +71,22 @@ WICHTIGE REGELN:
 - Denke an den User: Was würde ihm am meisten helfen?
 - GIB NICHT AUF - es gibt IMMER relevante Daten!
 
-ANTWORT FORMAT (JSON):
-{{
-  "reasoning": "Detaillierte Schritt-für-Schritt Analyse mit Synonymen und Begründung für jede gewählte Source...",
-  "selected_sources": ["source_id_1", "source_id_2"],
-  "confidence": 0.85,
-  "alternative_terms": ["synonym1", "synonym2", "verwandter_begriff"]
-}}
+ANTWORT FORMAT:
+Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt. KEIN Text davor oder danach!
 
-Antworte NUR mit dem JSON, keine zusätzlichen Erklärungen außerhalb des JSON.
+```json
+{{
+  "reasoning": "Kurze Begründung warum diese Sources gewählt wurden",
+  "selected_sources": ["knowledge_base", "zoho_crm"],
+  "confidence": 0.85,
+  "alternative_terms": ["synonym1", "synonym2"]
+}}
+```
+
+KRITISCH:
+- Deine Antwort MUSS mit {{ beginnen und mit }} enden
+- KEINE Erklärungen vor oder nach dem JSON
+- Verwende IMMER die exakten Source-IDs aus dem Catalog (z.B. "knowledge_base", "zoho_crm", "zoho_books")
+- confidence ist eine Zahl zwischen 0.0 und 1.0
 
 

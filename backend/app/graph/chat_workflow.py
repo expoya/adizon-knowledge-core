@@ -519,7 +519,13 @@ Das hilft mir, Ihnen die korrekten Informationen zu liefern."""
     # Knowledge Base (Vector + Graph) - Der "Glue"!
     if "knowledge_result" in tool_outputs and tool_outputs["knowledge_result"]:
         kb_result = tool_outputs["knowledge_result"]
-        if "Error" not in kb_result and "Keine" not in kb_result:
+        # Only exclude if it's an actual error, not just "no vector results"
+        # The result may have graph data even if vector search found nothing
+        has_graph_data = "GRAPH WISSEN" in kb_result and "Graph-Daten verfügbar" not in kb_result
+        has_vector_data = "TEXT WISSEN" in kb_result and "Keine relevanten Textabschnitte" not in kb_result
+        is_error = "Error" in kb_result or "nicht verfügbar" in kb_result
+
+        if (has_graph_data or has_vector_data) and not is_error:
             context_parts.append(f"=== WISSENSDATENBANK (Dokumente + Knowledge Graph) ===\n{kb_result}")
             sources_used.append("knowledge_base")
             logger.info("  ✓ Including knowledge_base context")

@@ -285,13 +285,33 @@ class MetadataService:
             
             try:
                 return json.loads(repaired)
-            except:
-                # Last resort: Return empty structure
-                logger.error(f"JSON repair failed. Returning default structure.")
+            except Exception as repair_err:
+                # Last resort: Try to extract source IDs from text
+                logger.error(f"JSON repair failed ({repair_err}). Attempting text extraction...")
+                logger.debug(f"  Repaired content was: {repaired[:300]}")
+
+                # Try to find source IDs mentioned in the text
+                found_sources = []
+                known_sources = ["knowledge_base", "zoho_crm", "zoho_books", "iot_database"]
+                for source_id in known_sources:
+                    if source_id in content.lower():
+                        found_sources.append(source_id)
+
+                if found_sources:
+                    logger.info(f"  📝 Extracted sources from text: {found_sources}")
+                    return {
+                        "reasoning": "Extracted from text (JSON parsing failed)",
+                        "selected_sources": found_sources,
+                        "confidence": 0.5,  # Lower confidence for text extraction
+                        "alternative_terms": []
+                    }
+
+                # True last resort: Return default with knowledge_base
+                logger.error("JSON repair failed. Returning default structure with knowledge_base.")
                 return {
-                    "reasoning": "JSON parsing failed",
-                    "selected_sources": [],
-                    "confidence": 0.0,
+                    "reasoning": "JSON parsing failed - using default",
+                    "selected_sources": ["knowledge_base"],  # At least return knowledge_base
+                    "confidence": 0.3,
                     "alternative_terms": []
                 }
     
@@ -418,7 +438,10 @@ class MetadataService:
                 
                 # 5. Parse Response (extract JSON from potential markdown)
                 content = response.content.strip()
-                
+
+                # Debug: Log raw LLM response for troubleshooting
+                logger.debug(f"  📝 Raw LLM response (first 500 chars): {content[:500]}")
+
                 # Use robust JSON parsing
                 result = self._parse_llm_json_response(content)
                 
@@ -453,13 +476,18 @@ class MetadataService:
                 # 8. Check if we have sources
                 if selected_sources:
                     # Check confidence for retry
-                    if confidence >= 0.7 or attempt >= max_retries:
+                    if confidence >= 0.5 or attempt >= max_retries:
                         return selected_sources[:max_sources]
                     else:
                         logger.warning(f"  ⚠️ Low confidence ({confidence:.2f}), retrying...")
                         continue
                 else:
-                    logger.warning("  ⚠️ No valid sources found, retrying...")
+                    # No sources from LLM - use keyword fallback immediately
+                    logger.warning("  ⚠️ LLM returned no sources, trying keyword-based fallback...")
+                    keyword_sources = self._fallback_keyword_based(query, max_sources)
+                    if keyword_sources:
+                        logger.info(f"  ✅ Keyword fallback found: {[s.id for s in keyword_sources]}")
+                        return keyword_sources
                     continue
                     
             except json.JSONDecodeError as e:
