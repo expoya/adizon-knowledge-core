@@ -227,10 +227,13 @@ class ZohoBooksClient:
         
         # DEBUG: Log first contact to see all available fields
         if contacts:
-            logger.debug(f"    🔍 DEBUG: First contact fields: {list(contacts[0].keys())}")
-            logger.debug(f"    🔍 DEBUG: Sample contact: {contacts[0]}")
+            logger.info(f"    🔍 DEBUG: First contact fields: {list(contacts[0].keys())}")
+            # Log sample contact but truncate large fields
+            sample = {k: str(v)[:100] if isinstance(v, str) and len(str(v)) > 100 else v 
+                     for k, v in contacts[0].items()}
+            logger.info(f"    🔍 DEBUG: Sample contact: {sample}")
         
-        for contact in contacts:
+        for idx, contact in enumerate(contacts):
             contact_id = contact.get("contact_id")
             contact_name = contact.get("contact_name", "Unknown")
             
@@ -238,10 +241,22 @@ class ZohoBooksClient:
             zcrm_account_id = (
                 contact.get("zcrm_account_id") or
                 contact.get("crm_account_id") or
-                contact.get("account_id") or  # Might conflict with Books account_id!
                 contact.get("zcrm_account") or
                 None
             )
+            
+            # Log first unmapped contact with ALL fields for debugging
+            if contact_id and not zcrm_account_id and unmapped_count == 0:
+                logger.warning(f"    🔍 FIRST UNMAPPED CONTACT (for debugging):")
+                logger.warning(f"       Name: {contact_name}")
+                logger.warning(f"       All fields: {list(contact.keys())}")
+                # Log all fields that contain "crm" or "account" (case insensitive)
+                crm_fields = {k: v for k, v in contact.items() 
+                             if 'crm' in k.lower() or 'account' in k.lower()}
+                if crm_fields:
+                    logger.warning(f"       CRM/Account related fields: {crm_fields}")
+                else:
+                    logger.warning(f"       ⚠️ NO CRM or Account related fields found!")
             
             if contact_id:
                 if zcrm_account_id:
