@@ -259,48 +259,46 @@ async def query_books_invoices(
         except Exception as e:
             logger.warning(f"⚠️ Books API invoice query failed: {e}")
             return ""
+    
+    # FORMAT RESULTS (common for both Analytics and Books API)
+    if customer_invoices:
+        section = ["### 🧾 Rechnungen (Zoho Books)\n"]
+        total_amount = 0
+        total_balance = 0
         
-        if customer_invoices:
-            section = ["### 🧾 Rechnungen (Zoho Books)\n"]
-            total_amount = 0
-            total_balance = 0
+        for invoice in customer_invoices[:20]:  # Limit to 20
+            invoice_number = invoice.get("invoice_number", "N/A")
+            status = invoice.get("status", "N/A")
+            total = float(invoice.get("total", 0))
+            balance = float(invoice.get("balance", 0))
+            date = invoice.get("date", "N/A")
+            due_date = invoice.get("due_date", "N/A")
+            currency = invoice.get("currency_code", "EUR")
             
-            for invoice in customer_invoices[:20]:  # Limit to 20
-                invoice_number = invoice.get("invoice_number", "N/A")
-                status = invoice.get("status", "N/A")
-                total = float(invoice.get("total", 0))
-                balance = float(invoice.get("balance", 0))
-                date = invoice.get("date", "N/A")
-                due_date = invoice.get("due_date", "N/A")
-                currency = invoice.get("currency_code", "EUR")
-                
-                # Status emoji
-                status_emoji = {
-                    "paid": "✅",
-                    "sent": "📤",
-                    "draft": "📝",
-                    "overdue": "⚠️",
-                    "void": "❌"
-                }.get(status.lower(), "📄")
-                
-                section.append(
-                    f"- {status_emoji} **{invoice_number}**: {currency} {total:,.2f} "
-                    f"(Balance: {balance:,.2f}) | {status} | "
-                    f"Date: {date} | Due: {due_date}"
-                )
-                
-                total_amount += total
-                total_balance += balance
+            # Status emoji
+            status_emoji = {
+                "paid": "✅",
+                "sent": "📤",
+                "draft": "📝",
+                "overdue": "⚠️",
+                "void": "❌"
+            }.get(status.lower(), "📄")
             
-            section.append(f"\n**Total**: {currency} {total_amount:,.2f}")
-            section.append(f"**Outstanding Balance**: {currency} {total_balance:,.2f}")
-            section.append(f"**Total Invoices**: {len(customer_invoices)}")
+            section.append(
+                f"- {status_emoji} **{invoice_number}**: {currency} {total:,.2f} "
+                f"(Balance: {balance:,.2f}) | {status} | "
+                f"Date: {date} | Due: {due_date}"
+            )
             
-            logger.info(f"✅ Found {len(customer_invoices)} Books Invoices")
-            return "\n".join(section)
-            
-    except Exception as e:
-        logger.warning(f"⚠️ Books Invoices query failed: {e}")
+            total_amount += total
+            total_balance += balance
+        
+        section.append(f"\n**Total**: {currency} {total_amount:,.2f}")
+        section.append(f"**Outstanding Balance**: {currency} {total_balance:,.2f}")
+        section.append(f"**Total Invoices**: {len(customer_invoices)}")
+        
+        logger.info(f"✅ Found {len(customer_invoices)} Books Invoices")
+        return "\n".join(section)
     
     return ""
 
