@@ -102,12 +102,20 @@ def _load_zoho_provider() -> CRMProvider:
     if books_org_id:
         logger.info(f"✅ Zoho Books integration enabled (org_id: {books_org_id})")
     
+    # Optional: Zoho Analytics integration
+    analytics_workspace = getattr(settings, 'zoho_analytics_workspace_name', None)
+    analytics_api_url = getattr(settings, 'zoho_analytics_api_base_url', 'https://analyticsapi.zoho.eu')
+    if analytics_workspace:
+        logger.info(f"✅ Zoho Analytics integration enabled (workspace: {analytics_workspace})")
+    
     provider = ZohoCRMProvider(
         client_id=settings.zoho_client_id,
         client_secret=settings.zoho_client_secret,
         refresh_token=settings.zoho_refresh_token,
         api_base_url=settings.zoho_api_base_url,
         books_organization_id=books_org_id,
+        analytics_workspace_name=analytics_workspace,
+        analytics_api_base_url=analytics_api_url,
     )
     
     # Verify connection

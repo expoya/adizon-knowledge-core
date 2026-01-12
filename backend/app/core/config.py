@@ -230,6 +230,18 @@ class Settings(BaseSettings):
         alias="ZOHO_BOOKS_ORGANIZATION_ID",
         description="Zoho Books Organization ID (required for Books API access)",
     )
+    
+    # Zoho Analytics Configuration (optional)
+    zoho_analytics_workspace_name: str | None = Field(
+        default=None,
+        alias="ZOHO_ANALYTICS_WORKSPACE_NAME",
+        description="Zoho Analytics workspace name for Books-CRM JOIN queries (e.g., 'Finance')",
+    )
+    zoho_analytics_api_base_url: str = Field(
+        default="https://analyticsapi.zoho.eu",
+        alias="ZOHO_ANALYTICS_API_BASE_URL",
+        description="Zoho Analytics API base URL (region-specific)",
+    )
 
 
 @lru_cache

@@ -8,6 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from app.core.interfaces.crm import CRMProvider
+from app.integrations.zoho.analytics_client import ZohoAnalyticsClient
 from app.integrations.zoho.books_client import ZohoBooksClient
 from app.integrations.zoho.books_processors import process_books_invoice
 from app.integrations.zoho.client import ZohoAPIError, ZohoClient
@@ -45,6 +46,8 @@ class ZohoCRMProvider(CRMProvider):
         refresh_token: str,
         api_base_url: str = "https://www.zohoapis.eu",
         books_organization_id: Optional[str] = None,
+        analytics_workspace_name: Optional[str] = None,
+        analytics_api_base_url: str = "https://analyticsapi.zoho.eu",
     ):
         """Initialize Zoho CRM provider."""
         self.client = ZohoClient(
@@ -65,6 +68,20 @@ class ZohoCRMProvider(CRMProvider):
             logger.info(f"ZohoCRMProvider initialized with Books support (org_id: {books_organization_id})")
         else:
             logger.info("ZohoCRMProvider initialized (CRM only, no Books)")
+        
+        # Initialize Analytics client if workspace_name is provided
+        self.analytics_client = None
+        if analytics_workspace_name:
+            self.analytics_client = ZohoAnalyticsClient(
+                client_id=client_id,
+                client_secret=client_secret,
+                refresh_token=refresh_token,
+                workspace_name=analytics_workspace_name,
+                api_base_url=analytics_api_base_url,
+            )
+            logger.info(f"  ✅ Zoho Analytics integration enabled (workspace: {analytics_workspace_name})")
+        else:
+            logger.info("  ℹ️ Zoho Analytics not configured (Books-CRM mapping via Books API fallback)")
 
     def check_connection(self) -> bool:
         """
@@ -179,8 +196,15 @@ class ZohoCRMProvider(CRMProvider):
                     # Fetch from Books API
                     if entity_type == "BooksInvoices":
                         # STEP 1: Build customer → account mapping
-                        customer_mapping = await self.books_client.build_customer_to_account_mapping()
-                        logger.info(f"    🔗 Built customer mapping: {len(customer_mapping)} Books customers → CRM accounts")
+                        # Prefer Analytics (more reliable), fallback to Books API
+                        if self.analytics_client:
+                            logger.info("    🔗 Using Zoho Analytics for Books-CRM mapping...")
+                            customer_mapping = await self.analytics_client.get_customer_crm_mapping()
+                        else:
+                            logger.info("    🔗 Using Books API for Books-CRM mapping (fallback)...")
+                            customer_mapping = await self.books_client.build_customer_to_account_mapping()
+                        
+                        logger.info(f"    ✅ Customer mapping: {len(customer_mapping)} Books customers → CRM accounts")
                         
                         # STEP 2: Fetch invoices with mapping
                         data = await self.books_client.fetch_all_invoices(max_pages=3)  # 3 pages × 200 = 600 max
@@ -333,7 +357,8 @@ class ZohoCRMProvider(CRMProvider):
             self.client, 
             entity_id, 
             query_context,
-            books_client=self.books_client  # Pass Books client for invoice queries
+            books_client=self.books_client,  # Pass Books client for invoice queries
+            analytics_client=self.analytics_client  # Pass Analytics client for SQL queries
         )
 
     def get_provider_name(self) -> str:

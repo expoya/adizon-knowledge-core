@@ -179,47 +179,86 @@ async def query_notes(client: ZohoClient, zoho_id: str) -> str:
     return ""  # Return empty string if no notes (not an error)
 
 
-async def query_books_invoices(books_client, crm_account_id: str) -> str:
+async def query_books_invoices(
+    crm_account_id: str,
+    books_client = None,
+    analytics_client = None
+) -> str:
     """
     Queries Zoho Books Invoices for a CRM Account.
     
+    Prefers Analytics SQL (faster, more reliable), falls back to Books API.
+    
     Args:
-        books_client: ZohoBooksClient instance (or None)
         crm_account_id: CRM Account ID (without "zoho_" prefix)
+        books_client: ZohoBooksClient instance (fallback)
+        analytics_client: ZohoAnalyticsClient instance (preferred)
         
     Returns:
         Markdown formatted section or empty string
     """
-    if not books_client:
-        logger.debug("⚠️ Books client not available - skipping invoice query")
-        return ""
+    logger.debug(f"📊 Fetching Books Invoices for CRM Account: {crm_account_id}")
     
-    try:
-        from app.integrations.zoho.books_client import ZohoBooksClient
+    # STRATEGY 1: Use Analytics SQL (FAST, RELIABLE)
+    if analytics_client:
+        try:
+            logger.debug("  🔍 Using Zoho Analytics SQL for invoice query...")
+            invoices_data = await analytics_client.get_invoices_for_account(crm_account_id)
+            
+            if invoices_data:
+                # Format Analytics data (column names might differ)
+                customer_invoices = [
+                    {
+                        "invoice_number": row.get("invoice_number"),
+                        "status": row.get("status"),
+                        "total": float(row.get("total", 0)),
+                        "balance": float(row.get("total", 0)) if row.get("status") != "paid" else 0.0,
+                        "date": row.get("invoice_date"),
+                        "due_date": row.get("invoice_date"),  # Analytics might not have due_date
+                        "payment_date": row.get("payment_date"),
+                    }
+                    for row in invoices_data
+                ]
+            else:
+                customer_invoices = []
         
-        # Get all invoices (we'll filter by customer mapping)
-        logger.debug(f"📊 Fetching Books Invoices for CRM Account: {crm_account_id}")
-        
-        # Build customer mapping to find correct Books customer_id
-        customer_mapping = await books_client.build_customer_to_account_mapping()
-        
-        # Reverse mapping: CRM Account ID → Books Customer ID
-        reverse_mapping = {v: k for k, v in customer_mapping.items()}
-        books_customer_id = reverse_mapping.get(crm_account_id)
-        
-        if not books_customer_id:
-            logger.debug(f"⚠️ No Books Customer found for CRM Account {crm_account_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Analytics invoice query failed: {e} - falling back to Books API")
+            # Fall through to Books API fallback
+            analytics_client = None
+    
+    # STRATEGY 2: Fallback to Books API (SLOW, requires full fetch + filter)
+    if not analytics_client:
+        if not books_client:
+            logger.debug("⚠️ Neither Analytics nor Books client available - skipping invoice query")
             return ""
         
-        # Fetch invoices for this customer
-        # Books API doesn't have direct customer filter in list, so we fetch and filter
-        invoices = await books_client.fetch_all_invoices(max_pages=5)
+        try:
+            logger.debug("  🔍 Using Books API for invoice query (fallback)...")
+            
+            # Build customer mapping to find correct Books customer_id
+            customer_mapping = await books_client.build_customer_to_account_mapping()
+            
+            # Reverse mapping: CRM Account ID → Books Customer ID
+            reverse_mapping = {v: k for k, v in customer_mapping.items()}
+            books_customer_id = reverse_mapping.get(crm_account_id)
+            
+            if not books_customer_id:
+                logger.debug(f"⚠️ No Books Customer found for CRM Account {crm_account_id}")
+                return ""
+            
+            # Fetch invoices for this customer
+            invoices = await books_client.fetch_all_invoices(max_pages=5)
+            
+            # Filter by customer_id
+            customer_invoices = [
+                inv for inv in invoices 
+                if str(inv.get("customer_id")) == books_customer_id
+            ]
         
-        # Filter by customer_id
-        customer_invoices = [
-            inv for inv in invoices 
-            if str(inv.get("customer_id")) == books_customer_id
-        ]
+        except Exception as e:
+            logger.warning(f"⚠️ Books API invoice query failed: {e}")
+            return ""
         
         if customer_invoices:
             section = ["### 🧾 Rechnungen (Zoho Books)\n"]
@@ -270,7 +309,8 @@ async def search_live_facts(
     client: ZohoClient, 
     entity_id: str, 
     query_context: str,
-    books_client = None
+    books_client = None,
+    analytics_client = None
 ) -> str:
     """
     Retrieves live facts about a Zoho entity.
@@ -282,7 +322,8 @@ async def search_live_facts(
         client: ZohoClient instance
         entity_id: Zoho record ID (with "zoho_" prefix)
         query_context: Context about what information is needed
-        books_client: Optional ZohoBooksClient for invoice queries
+        books_client: Optional ZohoBooksClient for invoice queries (fallback)
+        analytics_client: Optional ZohoAnalyticsClient for SQL queries (preferred)
         
     Returns:
         Formatted Markdown string with entity facts
@@ -300,8 +341,12 @@ async def search_live_facts(
     sections = []
     
     # Query Books Invoices (if available)
-    if books_client:
-        invoices_section = await query_books_invoices(books_client, zoho_id)
+    if books_client or analytics_client:
+        invoices_section = await query_books_invoices(
+            crm_account_id=zoho_id,
+            books_client=books_client,
+            analytics_client=analytics_client
+        )
         if invoices_section:
             sections.append(invoices_section)
     
