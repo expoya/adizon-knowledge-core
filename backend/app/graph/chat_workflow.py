@@ -180,9 +180,35 @@ async def router_node(state: AgentState) -> AgentState:
                 
                 if result:
                     logger.info(f"  ✅ Found {len(result)} matches for '{entity_name}'")
-                    for match in result:
-                        match["searched_name"] = entity_name
-                        all_matches.append(match)
+                    
+                    # Apply fuzzy matching to re-rank results
+                    from app.utils.fuzzy_matching import fuzzy_match_entities
+                    
+                    # Convert to format expected by fuzzy matcher
+                    candidates = [
+                        (match["source_id"], match["name"], match["type"], match["score"])
+                        for match in result
+                    ]
+                    
+                    # Apply fuzzy matching with 70% threshold
+                    fuzzy_results = fuzzy_match_entities(entity_name, candidates, threshold=0.7)
+                    
+                    # Convert back and add to all_matches
+                    for source_id, name, entity_type, score in fuzzy_results:
+                        all_matches.append({
+                            "source_id": source_id,
+                            "name": name,
+                            "type": entity_type,
+                            "score": score,
+                            "searched_name": entity_name
+                        })
+                    
+                    if not fuzzy_results and result:
+                        # If fuzzy matching filtered everything, keep original results
+                        logger.warning(f"  ⚠️ Fuzzy matching too strict, keeping {len(result)} original results")
+                        for match in result:
+                            match["searched_name"] = entity_name
+                            all_matches.append(match)
                 else:
                     logger.warning(f"  ⚠️ No matches found for '{entity_name}'")
             
@@ -388,9 +414,35 @@ async def knowledge_node(state: AgentState) -> AgentState:
                     
                     if result:
                         logger.info(f"    ✅ Found {len(result)} matches for '{entity_name}'")
-                        for match in result:
-                            match["searched_name"] = entity_name
-                            all_matches.append(match)
+                        
+                        # Apply fuzzy matching to re-rank results
+                        from app.utils.fuzzy_matching import fuzzy_match_entities
+                        
+                        # Convert to format expected by fuzzy matcher
+                        candidates = [
+                            (match["source_id"], match["name"], match["type"], match["score"])
+                            for match in result
+                        ]
+                        
+                        # Apply fuzzy matching with 70% threshold
+                        fuzzy_results = fuzzy_match_entities(entity_name, candidates, threshold=0.7)
+                        
+                        # Convert back and add to all_matches
+                        for source_id, name, entity_type, score in fuzzy_results:
+                            all_matches.append({
+                                "source_id": source_id,
+                                "name": name,
+                                "type": entity_type,
+                                "score": score,
+                                "searched_name": entity_name
+                            })
+                        
+                        if not fuzzy_results and result:
+                            # If fuzzy matching filtered everything, keep original results
+                            logger.warning(f"    ⚠️ Fuzzy matching too strict, keeping {len(result)} original results")
+                            for match in result:
+                                match["searched_name"] = entity_name
+                                all_matches.append(match)
                     else:
                         logger.warning(f"    ⚠️ No matches found for '{entity_name}'")
                 

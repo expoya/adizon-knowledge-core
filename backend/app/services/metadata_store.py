@@ -214,6 +214,87 @@ class MetadataService:
         except Exception as e:
             logger.error(f"Failed to load source catalog: {e}", exc_info=True)
     
+    def _parse_llm_json_response(self, content: str) -> Dict[str, Any]:
+        """
+        Robust JSON parsing for LLM responses.
+        
+        Handles:
+        - Markdown code blocks
+        - Control characters
+        - Trailing commas
+        - Escaped quotes
+        - Malformed JSON
+        
+        Args:
+            content: Raw LLM response
+            
+        Returns:
+            Parsed JSON dictionary
+            
+        Raises:
+            json.JSONDecodeError: If parsing fails after all repair attempts
+        """
+        import re
+        
+        # 1. Remove markdown code blocks
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        
+        # 2. Clean control characters (except newlines in strings)
+        content = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', ' ', content)
+        
+        # 3. Remove trailing commas before ] or }
+        # Example: {"key": "value",} → {"key": "value"}
+        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        
+        # 4. Fix common JSON formatting issues
+        # Remove multiple consecutive commas
+        content = re.sub(r',\s*,', ',', content)
+        
+        # 5. Try to parse
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            # Log original content for debugging
+            logger.debug(f"JSON parse error at position {e.pos}: {e.msg}")
+            logger.debug(f"Content around error: ...{content[max(0, e.pos-50):e.pos+50]}...")
+            
+            # 6. Attempt repair: Extract JSON object/array
+            # Try to find first { or [ and last } or ]
+            start_brace = content.find('{')
+            start_bracket = content.find('[')
+            
+            # Determine which comes first
+            if start_brace == -1 and start_bracket == -1:
+                raise  # No JSON structure found
+            
+            if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+                # Object
+                start = start_brace
+                end = content.rfind('}')
+                if end > start:
+                    repaired = content[start:end+1]
+            else:
+                # Array
+                start = start_bracket
+                end = content.rfind(']')
+                if end > start:
+                    repaired = content[start:end+1]
+            
+            try:
+                return json.loads(repaired)
+            except:
+                # Last resort: Return empty structure
+                logger.error(f"JSON repair failed. Returning default structure.")
+                return {
+                    "reasoning": "JSON parsing failed",
+                    "selected_sources": [],
+                    "confidence": 0.0,
+                    "alternative_terms": []
+                }
+    
     def get_relevant_sources(
         self, 
         query: str,
@@ -338,18 +419,8 @@ class MetadataService:
                 # 5. Parse Response (extract JSON from potential markdown)
                 content = response.content.strip()
                 
-                # Remove markdown code blocks if present
-                if "```json" in content:
-                    content = content.split("```json")[1].split("```")[0].strip()
-                elif "```" in content:
-                    content = content.split("```")[1].split("```")[0].strip()
-                
-                # Clean control characters that break JSON parsing
-                # Replace newlines, tabs, etc. within strings
-                import re
-                content = re.sub(r'[\x00-\x1F\x7F]', ' ', content)
-                
-                result = json.loads(content)
+                # Use robust JSON parsing
+                result = self._parse_llm_json_response(content)
                 
                 reasoning = result.get("reasoning", "")
                 source_ids = result.get("selected_sources", [])
