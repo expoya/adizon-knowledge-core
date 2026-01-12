@@ -1,6 +1,13 @@
 """
-LangGraph Chat Workflow für Agentic RAG (Phase 1 - Simplified).
-Knowledge Orchestrator mit optionalem CRM Access.
+LangGraph Chat Workflow für Agentic RAG (Phase 3 - Streamlined).
+
+Simplified 3-Node Architecture:
+  Router → Knowledge Orchestrator → Generator
+
+The Knowledge Orchestrator is the central hub that:
+- Uses LLM-based Source Discovery (Catalog-first!)
+- Performs Entity Resolution via Graph (when requires_entity_id)
+- Executes CRM/SQL tools directly (no separate CRM node needed)
 """
 
 import logging
@@ -10,7 +17,6 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemM
 from langgraph.graph import END, StateGraph
 
 from app.core.llm import get_llm
-from app.services.graph_store import get_graph_store_service
 from app.tools.knowledge import search_knowledge_base
 from app.tools.crm import get_crm_facts
 from app.prompts import get_prompt
@@ -43,210 +49,53 @@ class AgentState(TypedDict):
 
 async def router_node(state: AgentState) -> AgentState:
     """
-    Router Node: Vereinfachte Intent Classification.
-    
-    Entscheidet nur noch zwischen:
+    Router Node: Pure Intent Classification.
+
+    Entscheidet NUR zwischen:
     - "question": Fachliche Frage → Knowledge Orchestrator
     - "general": Small Talk → Direkt zum Generator
-    
-    Optional: Sucht nach CRM-Entities im Graph für Live-Daten.
+
+    Entity Resolution passiert im Knowledge Node basierend auf dem Katalog!
+    Der Katalog entscheidet, ob Graph-Suche nötig ist (requires_entity_id).
     """
-    logger.info("🔀 Router Node: Simple intent classification")
-    
+    logger.info("🔀 Router Node: Intent classification only")
+
     # Hole letzte User-Nachricht
     user_message = None
     for msg in reversed(state["messages"]):
         if isinstance(msg, HumanMessage):
             user_message = msg.content
             break
-    
+
     if not user_message:
         logger.warning("⚠️ No user message found in state")
         state["intent"] = "general"
         return state
-    
-    logger.info(f"[ROUTER] User Query: {user_message}")
-    
+
+    logger.info(f"[ROUTER] User Query: {user_message[:100]}...")
+
     # Verwende LLM für Intent Classification (vereinfacht: nur 2 Intents)
     llm = get_llm(temperature=0.0, streaming=False)
     classification_prompt = get_prompt("intent_classification")
-    
+
     try:
         classification_result = await llm.ainvoke([
             SystemMessage(content=classification_prompt.format(query=user_message))
         ])
         intent_raw = classification_result.content.strip().lower()
-        
+
         # Normalisiere Intent
         if "question" in intent_raw or "frage" in intent_raw:
             state["intent"] = "question"
         else:
             state["intent"] = "general"
-        
-        logger.info(f"[ROUTER] Intent: '{state['intent']}'")
-        
+
+        logger.info(f"[ROUTER] Intent: '{state['intent']}' → {'Knowledge Node' if state['intent'] == 'question' else 'Generator'}")
+
     except Exception as e:
         logger.error(f"❌ Intent classification failed: {e}")
         state["intent"] = "question"  # Fallback zu question (besser als general)
-    
-    # Bei Fragen: Suche optional nach CRM-Entities im Graph
-    if state["intent"] == "question":
-        try:
-            logger.info("🔍 Step 1: Extracting entity names from query using LLM...")
-            
-            # STEP 1: LLM extrahiert Entity-Namen aus der User-Anfrage
-            llm = get_llm(temperature=0.0, streaming=False)
-            entity_extraction_prompt = get_prompt("entity_extraction")
-            
-            try:
-                extraction_result = await llm.ainvoke([
-                    SystemMessage(content=entity_extraction_prompt.format(query=user_message))
-                ])
-                
-                # Parse JSON response
-                import json
-                import re
-                extracted_text = extraction_result.content.strip()
-                # Remove markdown code blocks if present
-                if extracted_text.startswith("```"):
-                    extracted_text = extracted_text.split("```")[1]
-                    if extracted_text.startswith("json"):
-                        extracted_text = extracted_text[4:]
-                extracted_text = extracted_text.strip()
-                
-                # Clean control characters that break JSON parsing
-                extracted_text = re.sub(r'[\x00-\x1F\x7F]', ' ', extracted_text)
-                
-                entity_names = json.loads(extracted_text)
-                
-                if entity_names:
-                    logger.info(f"  ✅ LLM extracted {len(entity_names)} entity names: {entity_names}")
-                else:
-                    logger.debug("  ℹ️ No entity names extracted from query - continuing without crm_target")
-                    entity_names = []  # Continue with empty list
-                    
-            except Exception as e:
-                logger.warning(f"  ⚠️ Entity extraction failed: {e} - continuing without crm_target")
-                entity_names = []  # Continue with empty list
-            
-            # STEP 2: Einfache Graph-Suche mit extrahierten Namen
-            logger.info("🔍 Step 2: Searching graph for extracted entities...")
-            
-            graph_store = get_graph_store_service()
-            
-            all_matches = []
-            
-            for entity_name in entity_names:
-                # Einfache, präzise Query mit exaktem Namen
-                cypher_query = """
-                MATCH (n)
-                WHERE n.source_id STARTS WITH 'zoho_'
-                  AND (
-                    toLower(n.name) = toLower($name)
-                    OR toLower(n.company) = toLower($name)
-                    OR toLower(n.account_name) = toLower($name)
-                    OR (toLower(n.first_name) + ' ' + toLower(n.last_name)) = toLower($name)
-                  )
-                RETURN 
-                  n.source_id as source_id,
-                  coalesce(n.name, n.account_name, n.company, n.first_name + ' ' + n.last_name) as name,
-                  labels(n)[0] as type,
-                  100 as score
-                
-                UNION
-                
-                // Fallback: Partial match if exact not found
-                MATCH (n)
-                WHERE n.source_id STARTS WITH 'zoho_'
-                  AND (
-                    toLower(n.name) CONTAINS toLower($name)
-                    OR toLower(n.company) CONTAINS toLower($name)
-                    OR toLower(n.account_name) CONTAINS toLower($name)
-                  )
-                RETURN 
-                  n.source_id as source_id,
-                  coalesce(n.name, n.account_name, n.company) as name,
-                  labels(n)[0] as type,
-                  50 as score
-                
-                ORDER BY score DESC
-                LIMIT 3
-                """
-                
-                result = await graph_store.query(
-                    cypher_query,
-                    parameters={"name": entity_name}
-                )
-                
-                if result:
-                    logger.info(f"  ✅ Found {len(result)} matches for '{entity_name}'")
-                    
-                    # Apply fuzzy matching to re-rank results
-                    from app.utils.fuzzy_matching import fuzzy_match_entities
-                    
-                    # Convert to format expected by fuzzy matcher
-                    candidates = [
-                        (match["source_id"], match["name"], match["type"], match["score"])
-                        for match in result
-                    ]
-                    
-                    # Apply fuzzy matching with 70% threshold
-                    fuzzy_results = fuzzy_match_entities(entity_name, candidates, threshold=0.7)
-                    
-                    # Convert back and add to all_matches
-                    for source_id, name, entity_type, score in fuzzy_results:
-                        all_matches.append({
-                            "source_id": source_id,
-                            "name": name,
-                            "type": entity_type,
-                            "score": score,
-                            "searched_name": entity_name
-                        })
-                    
-                    if not fuzzy_results and result:
-                        # If fuzzy matching filtered everything, keep original results
-                        logger.warning(f"  ⚠️ Fuzzy matching too strict, keeping {len(result)} original results")
-                        for match in result:
-                            match["searched_name"] = entity_name
-                            all_matches.append(match)
-                else:
-                    logger.warning(f"  ⚠️ No matches found for '{entity_name}'")
-            
-            # STEP 3: Wähle besten Match
-            if all_matches:
-                # Sortiere nach Score (höchster zuerst)
-                all_matches.sort(key=lambda x: x.get("score", 0), reverse=True)
-                
-                best_match = all_matches[0]
-                source_id = best_match.get("source_id")
-                entity_name = best_match.get("name")
-                entity_type = best_match.get("type")
-                score = best_match.get("score", 0)
-                searched_name = best_match.get("searched_name", "")
-                
-                logger.info(f"  🎯 Best match for '{searched_name}': {entity_type} '{entity_name}' (Score: {score})")
-                
-                # Log alle Matches für Transparenz
-                if len(all_matches) > 1:
-                    logger.info(f"  📋 All matches:")
-                    for i, match in enumerate(all_matches[:5]):
-                        marker = "✅" if i == 0 else f"  #{i+1}"
-                        logger.info(f"    {marker} {match.get('type')} '{match.get('name')}' (Score: {match.get('score')})")
-                
-                # Verwende besten Match
-                state["crm_target"] = source_id
-                
-                # Bei Score < 100 (kein exakter Match) → Unsicherheit markieren
-                if score < 100:
-                    logger.warning(f"  ⚠️ Match is not exact (Score: {score}) - marking as uncertain")
-                    state["entity_uncertain"] = True
-            else:
-                logger.debug("  ℹ️ No entities found in graph")
-                
-        except Exception as e:
-            logger.warning(f"⚠️ Entity search failed: {e}")
-            # Continue without CRM - non-fatal error
-    
+
     return state
 
 
@@ -609,54 +458,12 @@ async def knowledge_node(state: AgentState) -> AgentState:
     return state
 
 
-async def crm_node(state: AgentState) -> AgentState:
-    """
-    CRM Node: Holt Live-Fakten aus dem CRM-System.
-    """
-    logger.info("[CRM_NODE] 📞 Executing CRM Node")
-    logger.info("[CRM_NODE] Tool: get_crm_facts")
-    
-    # Hole CRM Target
-    crm_target = state.get("crm_target", "")
-    
-    if not crm_target:
-        error_msg = "Error: Kein CRM-Target im State."
-        logger.error(f"❌ {error_msg}")
-        state["tool_outputs"]["crm_result"] = error_msg
-        return state
-    
-    # Hole User Query für Context
-    user_message = None
-    for msg in reversed(state["messages"]):
-        if isinstance(msg, HumanMessage):
-            user_message = msg.content
-            break
-    
-    query_context = user_message if user_message else "general information"
-    
-    try:
-        # Rufe CRM Tool auf
-        logger.info(f"📡 Calling CRM for entity: {crm_target}")
-        crm_result = await get_crm_facts.ainvoke({
-            "entity_id": crm_target,
-            "query_context": query_context
-        })
-        
-        # Speichere Ergebnis
-        state["tool_outputs"]["crm_result"] = crm_result
-        
-        # Log Ergebnis
-        if "Error" in crm_result or "Fehler" in crm_result:
-            logger.warning(f"⚠️ CRM query had errors: {crm_result[:200]}")
-        else:
-            logger.info(f"✅ CRM facts retrieved: {len(crm_result)} chars")
-        
-    except Exception as e:
-        error_msg = f"Error in CRM processing: {str(e)}"
-        logger.error(f"❌ {error_msg}", exc_info=True)
-        state["tool_outputs"]["crm_result"] = error_msg
-    
-    return state
+# CRM Node REMOVED (Phase 3 Cleanup)
+# -------------------------------------------------
+# The CRM Node was redundant - Knowledge Node already calls get_crm_facts
+# directly via the Source Catalog (tool_name == "get_crm_facts").
+# Workflow simplified: Router → Knowledge → Generator
+# -------------------------------------------------
 
 
 async def generation_node(state: AgentState) -> AgentState:
@@ -784,13 +591,7 @@ def should_use_knowledge(state: AgentState) -> str:
     return "knowledge" if intent == "question" else "skip_knowledge"
 
 
-def should_use_crm(state: AgentState) -> str:
-    """
-    Entscheidet ob CRM Node aufgerufen werden soll.
-    Nur wenn crm_target im State vorhanden ist.
-    """
-    has_target = bool(state.get("crm_target"))
-    return "crm" if has_target else "skip_crm"
+# should_use_crm REMOVED (Phase 3 Cleanup) - CRM handled in Knowledge Node
 
 
 # =============================================================================
@@ -799,28 +600,32 @@ def should_use_crm(state: AgentState) -> str:
 
 def create_chat_workflow() -> StateGraph:
     """
-    Erstellt den vereinfachten LangGraph Chat Workflow (Phase 1).
-    
+    Erstellt den vereinfachten LangGraph Chat Workflow (Phase 3).
+
     Flow:
-        Router → Knowledge Orchestrator → [optional: CRM] → Generator
-    
+        Router → Knowledge Orchestrator → Generator
+
+    Der Knowledge Orchestrator ist der zentrale Hub:
+    - LLM-basierte Source Discovery (Catalog-first!)
+    - Entity Resolution via Graph (nur wenn requires_entity_id)
+    - CRM/SQL Tool Calls direkt im Knowledge Node
+
     Returns:
         Compiled StateGraph für den Chat Agenten
     """
-    logger.info("🏗️ Building simplified chat workflow graph (Phase 1)")
-    
+    logger.info("🏗️ Building simplified chat workflow graph (Phase 3)")
+
     # Erstelle den State Graph
     workflow = StateGraph(AgentState)
-    
-    # Füge Nodes hinzu (SQL Node entfernt!)
+
+    # Füge Nodes hinzu (nur 3 Nodes: Router, Knowledge, Generator)
     workflow.add_node("router", router_node)
     workflow.add_node("knowledge", knowledge_node)
-    workflow.add_node("crm", crm_node)
     workflow.add_node("generator", generation_node)
-    
+
     # Setze Entry Point
     workflow.set_entry_point("router")
-    
+
     # Router → Knowledge oder Generator
     # Bei "question" → Knowledge Orchestrator
     # Bei "general" (Small Talk) → Direkt Generator
@@ -832,28 +637,18 @@ def create_chat_workflow() -> StateGraph:
             "skip_knowledge": "generator"  # Small Talk
         }
     )
-    
-    # Knowledge Node prüft ob CRM benötigt wird
-    workflow.add_conditional_edges(
-        "knowledge",
-        should_use_crm,
-        {
-            "crm": "crm",  # Wenn CRM-Entity gefunden, hole Live-Facts
-            "skip_crm": "generator"  # Sonst direkt zum Generator
-        }
-    )
-    
-    # CRM Node geht zu Generator
-    workflow.add_edge("crm", "generator")
-    
+
+    # Knowledge → Generator (direkt, keine CRM Node mehr!)
+    workflow.add_edge("knowledge", "generator")
+
     # Generator ist das Ende
     workflow.add_edge("generator", END)
-    
+
     # Compile den Workflow
     app = workflow.compile()
-    
-    logger.info("✅ Chat workflow compiled (4 nodes: router, knowledge, crm, generator)")
-    
+
+    logger.info("✅ Chat workflow compiled (3 nodes: router, knowledge, generator)")
+
     return app
 
 

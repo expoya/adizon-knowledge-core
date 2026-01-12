@@ -7,3 +7,4 @@ Example:
     >>> check_crm_status()
     "✅ CRM verbunden: Zoho CRM"
 
+

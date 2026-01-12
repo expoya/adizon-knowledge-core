@@ -50,3 +50,4 @@ async def get_sync_status() -> SyncStatusResponse:
         is_running=sync_status.is_running()
     )
 
+

@@ -128,3 +128,4 @@ async def get_graph_statistics(graph_store: GraphStoreService) -> GraphStats:
         relationship_types=relationship_types
     )
 
+

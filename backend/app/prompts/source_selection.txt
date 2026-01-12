@@ -81,3 +81,4 @@ ANTWORT FORMAT (JSON):
 
 Antworte NUR mit dem JSON, keine zusätzlichen Erklärungen außerhalb des JSON.
 
+

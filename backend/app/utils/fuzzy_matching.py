@@ -192,3 +192,4 @@ def is_likely_typo(search_term: str, candidate: str) -> bool:
     
     return False
 
+

@@ -46,7 +46,8 @@ class ZohoCRMProvider(CRMProvider):
         refresh_token: str,
         api_base_url: str = "https://www.zohoapis.eu",
         books_organization_id: Optional[str] = None,
-        analytics_workspace_name: Optional[str] = None,
+        analytics_workspace_id: Optional[str] = None,
+        analytics_org_id: Optional[str] = None,
         analytics_api_base_url: str = "https://analyticsapi.zoho.eu",
     ):
         """Initialize Zoho CRM provider."""
@@ -56,7 +57,7 @@ class ZohoCRMProvider(CRMProvider):
             refresh_token=refresh_token,
             api_base_url=api_base_url,
         )
-        
+
         # Initialize Books client if organization_id is provided
         self.books_client = None
         if books_organization_id:
@@ -68,18 +69,21 @@ class ZohoCRMProvider(CRMProvider):
             logger.info(f"ZohoCRMProvider initialized with Books support (org_id: {books_organization_id})")
         else:
             logger.info("ZohoCRMProvider initialized (CRM only, no Books)")
-        
-        # Initialize Analytics client if workspace_name is provided
+
+        # Initialize Analytics client if workspace_id AND org_id are provided
         self.analytics_client = None
-        if analytics_workspace_name:
+        if analytics_workspace_id and analytics_org_id:
             self.analytics_client = ZohoAnalyticsClient(
                 client_id=client_id,
                 client_secret=client_secret,
                 refresh_token=refresh_token,
-                workspace_name=analytics_workspace_name,
+                workspace_id=analytics_workspace_id,
+                org_id=analytics_org_id,
                 api_base_url=analytics_api_base_url,
             )
-            logger.info(f"  ✅ Zoho Analytics integration enabled (workspace: {analytics_workspace_name})")
+            logger.info(f"  ✅ Zoho Analytics integration enabled (workspace_id: {analytics_workspace_id}, org_id: {analytics_org_id})")
+        elif analytics_workspace_id and not analytics_org_id:
+            logger.warning("  ⚠️ ZOHO_ANALYTICS_WORKSPACE_ID set but ZOHO_ANALYTICS_ORG_ID missing - Analytics disabled!")
         else:
             logger.info("  ℹ️ Zoho Analytics not configured (Books-CRM mapping via Books API fallback)")
 

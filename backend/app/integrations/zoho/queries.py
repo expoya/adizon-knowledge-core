@@ -347,26 +347,25 @@ async def search_live_facts(
         )
         if invoices_section:
             sections.append(invoices_section)
-    
-    # Query Notes
-    notes_section = await query_notes(client, zoho_id)
-    if notes_section:
-        sections.append(notes_section)
-    
-    # Query Einwände
-    einwaende_section = await query_einwaende(client, zoho_id)
-    if einwaende_section:
-        sections.append(einwaende_section)
-    
-    # Query Calendly Events
-    calendly_section = await query_calendly_events(client, zoho_id)
-    if calendly_section:
-        sections.append(calendly_section)
-    
-    # Query Deals
-    deals_section = await query_deals(client, zoho_id)
-    if deals_section:
-        sections.append(deals_section)
+
+    # Query CRM modules in PARALLEL for performance
+    import asyncio
+
+    crm_queries = await asyncio.gather(
+        query_notes(client, zoho_id),
+        query_einwaende(client, zoho_id),
+        query_calendly_events(client, zoho_id),
+        query_deals(client, zoho_id),
+        return_exceptions=True  # Don't fail all if one fails
+    )
+
+    # Unpack results
+    notes_section, einwaende_section, calendly_section, deals_section = crm_queries
+
+    # Add successful results (skip exceptions)
+    for section in [notes_section, einwaende_section, calendly_section, deals_section]:
+        if section and not isinstance(section, Exception):
+            sections.append(section)
     
     # Skip Finance modules - COQL not supported for Subscriptions__s
     logger.debug("⚠️ Skipping Finance/Subscriptions - COQL not supported for finance modules")

@@ -91,3 +91,4 @@ formatted = prompt.format(query="Hallo Welt")
 - **Kommentare** mit `#` wenn nötig
 - **Tests schreiben** für kritische Prompts
 
+

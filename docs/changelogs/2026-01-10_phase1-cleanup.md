@@ -296,3 +296,4 @@ curl -X POST http://localhost:8000/api/v1/chat \
 **Dauer:** ~1 Stunde  
 **Nächste Phase:** Phase 2 - Metadata Service erweitern
 
+

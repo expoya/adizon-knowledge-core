@@ -232,10 +232,15 @@ class Settings(BaseSettings):
     )
     
     # Zoho Analytics Configuration (optional)
-    zoho_analytics_workspace_name: str | None = Field(
+    zoho_analytics_workspace_id: str | None = Field(
         default=None,
-        alias="ZOHO_ANALYTICS_WORKSPACE_NAME",
-        description="Zoho Analytics workspace name for Books-CRM JOIN queries (e.g., 'Finance')",
+        alias="ZOHO_ANALYTICS_WORKSPACE_ID",
+        description="Zoho Analytics workspace ID (numeric, e.g., '170896000000004002')",
+    )
+    zoho_analytics_org_id: str | None = Field(
+        default=None,
+        alias="ZOHO_ANALYTICS_ORG_ID",
+        description="Zoho Analytics Organization ID (required for API v2 - ZANALYTICS-ORGID header)",
     )
     zoho_analytics_api_base_url: str = Field(
         default="https://analyticsapi.zoho.eu",

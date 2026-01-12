@@ -19,3 +19,4 @@ Args:
 Returns:
     Ein formatierter String mit gefundenem Wissen aus Vector Store und Graph Store
 
+

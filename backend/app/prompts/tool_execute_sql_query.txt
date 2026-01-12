@@ -18,3 +18,4 @@ Args:
 Returns:
     Die Ergebnisse als JSON-formatierter String oder eine Fehlermeldung
 
+
