@@ -5,11 +5,75 @@ Handles search_live_facts queries for Einwände, Calendly, Deals, etc.
 """
 
 import logging
-from typing import Any, Dict
+import re
+from typing import Any, Dict, Union
 
 from app.integrations.zoho.client import ZohoClient
 
 logger = logging.getLogger(__name__)
+
+
+def parse_currency_to_float(value: Union[str, float, int, None]) -> float:
+    """
+    Parse currency values to float.
+
+    Handles:
+    - German format: "EUR 2.988,00" → 2988.00
+    - English format: "EUR 2,988.00" → 2988.00
+    - Already numeric: 2988.00 → 2988.00
+    - None or empty: → 0.0
+
+    Args:
+        value: Currency value in various formats
+
+    Returns:
+        Float value
+    """
+    if value is None:
+        return 0.0
+
+    # Already a number
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    # Convert to string and clean
+    text = str(value).strip()
+
+    if not text:
+        return 0.0
+
+    # Remove currency symbols and whitespace
+    text = re.sub(r'[€$£¥]|EUR|USD|GBP', '', text, flags=re.IGNORECASE).strip()
+
+    # Detect format: German uses comma as decimal, period as thousands
+    # If we have both comma and period, determine which is decimal
+    has_comma = ',' in text
+    has_period = '.' in text
+
+    if has_comma and has_period:
+        # Both present - check which comes last (that's the decimal)
+        comma_pos = text.rfind(',')
+        period_pos = text.rfind('.')
+
+        if comma_pos > period_pos:
+            # German format: 2.988,00
+            text = text.replace('.', '').replace(',', '.')
+        else:
+            # English format: 2,988.00
+            text = text.replace(',', '')
+    elif has_comma:
+        # Only comma - likely German decimal separator
+        text = text.replace(',', '.')
+    # If only period, it's already correct
+
+    # Remove any remaining non-numeric characters except decimal point and minus
+    text = re.sub(r'[^\d.\-]', '', text)
+
+    try:
+        return float(text) if text else 0.0
+    except ValueError:
+        logger.warning(f"Could not parse currency value: {value}")
+        return 0.0
 
 
 async def query_einwaende(client: ZohoClient, zoho_id: str) -> str:
@@ -207,18 +271,22 @@ async def query_books_invoices(
             
             if invoices_data:
                 # Format Analytics data (column names might differ)
-                customer_invoices = [
-                    {
+                # Note: Analytics returns currency as formatted strings like "EUR 2.988,00"
+                customer_invoices = []
+                for row in invoices_data:
+                    total_val = parse_currency_to_float(row.get("total"))
+                    status = row.get("status", "").lower()
+                    balance_val = 0.0 if status == "paid" else total_val
+
+                    customer_invoices.append({
                         "invoice_number": row.get("invoice_number"),
                         "status": row.get("status"),
-                        "total": float(row.get("total", 0)),
-                        "balance": float(row.get("total", 0)) if row.get("status") != "paid" else 0.0,
+                        "total": total_val,
+                        "balance": balance_val,
                         "date": row.get("invoice_date"),
                         "due_date": row.get("invoice_date"),  # Analytics might not have due_date
                         "payment_date": row.get("payment_date"),
-                    }
-                    for row in invoices_data
-                ]
+                    })
             else:
                 customer_invoices = []
         
