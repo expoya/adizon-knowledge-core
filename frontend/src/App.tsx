@@ -2,8 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
 import ChatPage from './pages/ChatPage';
-import GardenPage from './pages/GardenPage';
 import UploadPage from './pages/UploadPage';
+import Explorer from './pages/Explorer';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -22,7 +22,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<ChatPage />} />
-            <Route path="garden" element={<GardenPage />} />
+            <Route path="explorer" element={<Explorer />} />
             <Route path="upload" element={<UploadPage />} />
           </Route>
         </Routes>

@@ -1,4 +1,41 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import {
+  Search,
+  FileText,
+  MoreHorizontal,
+  Eye,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  FolderOpen,
+} from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Card, CardContent } from '@/components/ui/card'
 
 interface Document {
   id: string
@@ -40,36 +77,69 @@ const DUMMY_DOCUMENTS: Document[] = [
   },
 ]
 
-const STATUS_CONFIG = {
-  pending: {
-    label: 'Pending',
-    bgColor: 'bg-gray-500/10',
-    textColor: 'text-gray-400',
-    dotColor: 'bg-gray-400',
-  },
-  processing: {
-    label: 'Processing',
-    bgColor: 'bg-amber-500/10',
-    textColor: 'text-amber-400',
-    dotColor: 'bg-amber-400 animate-pulse',
-  },
-  indexed: {
-    label: 'Indexed',
-    bgColor: 'bg-emerald-500/10',
-    textColor: 'text-emerald-400',
-    dotColor: 'bg-emerald-400',
-  },
-  failed: {
-    label: 'Failed',
-    bgColor: 'bg-red-500/10',
-    textColor: 'text-red-400',
-    dotColor: 'bg-red-400',
-  },
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'Alle Status' },
+  { value: 'indexed', label: 'Indexiert' },
+  { value: 'processing', label: 'Verarbeitung' },
+  { value: 'pending', label: 'Wartend' },
+  { value: 'failed', label: 'Fehlgeschlagen' },
+]
+
+function getStatusBadge(status: Document['status']) {
+  switch (status) {
+    case 'indexed':
+      return (
+        <Badge variant="default" className="bg-green-500/20 text-green-400 border-green-500/30">
+          <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-green-400" />
+          Indexiert
+        </Badge>
+      )
+    case 'processing':
+      return (
+        <Badge variant="secondary" className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+          <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+          Verarbeitung
+        </Badge>
+      )
+    case 'pending':
+      return (
+        <Badge variant="outline" className="text-muted-foreground">
+          <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+          Wartend
+        </Badge>
+      )
+    case 'failed':
+      return (
+        <Badge variant="destructive" className="bg-red-500/20 text-red-400 border-red-500/30">
+          <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-red-400" />
+          Fehlgeschlagen
+        </Badge>
+      )
+  }
+}
+
+function getFileTypeBadge(filename: string) {
+  const ext = filename.split('.').pop()?.toLowerCase()
+  switch (ext) {
+    case 'pdf':
+      return <Badge variant="outline" className="text-xs">PDF</Badge>
+    case 'docx':
+    case 'doc':
+      return <Badge variant="outline" className="text-xs">DOCX</Badge>
+    case 'md':
+      return <Badge variant="outline" className="text-xs">MD</Badge>
+    case 'txt':
+      return <Badge variant="outline" className="text-xs">TXT</Badge>
+    default:
+      return <Badge variant="outline" className="text-xs">{ext?.toUpperCase()}</Badge>
+  }
 }
 
 export default function Explorer() {
   const [documents, setDocuments] = useState<Document[]>(DUMMY_DOCUMENTS)
   const [isLoading, setIsLoading] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   // Fetch documents from API (using dummy data for now)
   useEffect(() => {
@@ -92,6 +162,19 @@ export default function Explorer() {
     fetchDocuments()
   }, [])
 
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((doc) => {
+      const matchesSearch = doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesStatus = statusFilter === 'all' || doc.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [documents, searchQuery, statusFilter])
+
+  const stats = useMemo(() => ({
+    total: documents.length,
+    indexed: documents.filter(d => d.status === 'indexed').length,
+  }), [documents])
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('de-DE', {
       day: '2-digit',
@@ -102,118 +185,181 @@ export default function Explorer() {
     })
   }
 
+  const handleRefresh = () => {
+    setIsLoading(true)
+    setTimeout(() => {
+      setDocuments(DUMMY_DOCUMENTS)
+      setIsLoading(false)
+    }, 500)
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-white">Knowledge Explorer</h2>
-          <p className="mt-1 text-gray-400">
-            Browse and manage your indexed documents
-          </p>
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <header className="border-b border-border bg-card/50 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Knowledge Explorer</h1>
+            <p className="text-sm text-muted-foreground">
+              Durchsuche und verwalte deine indexierten Dokumente
+            </p>
+          </div>
+
+          {/* Stats */}
+          <div className="flex gap-3">
+            <Card className="border-border bg-card">
+              <CardContent className="px-4 py-2">
+                <div className="text-2xl font-semibold text-foreground">{stats.total}</div>
+                <div className="text-xs text-muted-foreground">Dokumente</div>
+              </CardContent>
+            </Card>
+            <Card className="border-border bg-card">
+              <CardContent className="px-4 py-2">
+                <div className="text-2xl font-semibold text-green-400">{stats.indexed}</div>
+                <div className="text-xs text-muted-foreground">Indexiert</div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-        
-        {/* Stats */}
-        <div className="flex gap-4">
-          <div className="px-4 py-2 bg-midnight-900 rounded-lg">
-            <div className="text-2xl font-semibold text-white">{documents.length}</div>
-            <div className="text-xs text-gray-500">Documents</div>
+      </header>
+
+      {/* Toolbar */}
+      <div className="border-b border-border bg-card/30 px-6 py-3">
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Dokumente suchen..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
           </div>
-          <div className="px-4 py-2 bg-midnight-900 rounded-lg">
-            <div className="text-2xl font-semibold text-emerald-400">
-              {documents.filter(d => d.status === 'indexed').length}
-            </div>
-            <div className="text-xs text-gray-500">Indexed</div>
-          </div>
+
+          {/* Status Filter */}
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Status filtern" />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Refresh Button */}
+          <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
       </div>
 
-      {/* Documents Table */}
-      <div className="bg-midnight-900/50 rounded-xl border border-midnight-800 overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-midnight-800">
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Document
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Uploaded
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Hash
-              </th>
-              <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-midnight-800">
-            {isLoading ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                  <svg className="w-8 h-8 animate-spin mx-auto mb-2" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Loading documents...
-                </td>
-              </tr>
-            ) : documents.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                  No documents yet. Upload some files to get started.
-                </td>
-              </tr>
-            ) : (
-              documents.map((doc) => {
-                const statusConfig = STATUS_CONFIG[doc.status]
-                return (
-                  <tr key={doc.id} className="hover:bg-midnight-800/50 transition-colors">
-                    <td className="px-6 py-4">
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Dokument</TableHead>
+                <TableHead>Typ</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Hochgeladen</TableHead>
+                <TableHead>Hash</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-32 text-center">
+                    <div className="flex flex-col items-center justify-center text-muted-foreground">
+                      <Loader2 className="mb-2 h-8 w-8 animate-spin" />
+                      <span>Lade Dokumente...</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : filteredDocuments.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-32 text-center">
+                    <div className="flex flex-col items-center justify-center text-muted-foreground">
+                      <FolderOpen className="mb-2 h-8 w-8" />
+                      <span>
+                        {searchQuery || statusFilter !== 'all'
+                          ? 'Keine Dokumente gefunden'
+                          : 'Noch keine Dokumente vorhanden'}
+                      </span>
+                      {!searchQuery && statusFilter === 'all' && (
+                        <span className="mt-1 text-xs">
+                          Lade Dateien hoch, um zu beginnen
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredDocuments.map((doc) => (
+                  <TableRow key={doc.id}>
+                    <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-midnight-800 flex items-center justify-center">
-                          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
                         </div>
                         <div>
-                          <div className="font-medium text-white">{doc.filename}</div>
-                          <div className="text-xs text-gray-500">ID: {doc.id}</div>
+                          <div className="font-medium">{doc.filename}</div>
+                          <div className="text-xs text-muted-foreground">ID: {doc.id}</div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.bgColor} ${statusConfig.textColor}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dotColor}`} />
-                        {statusConfig.label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-400">
+                    </TableCell>
+                    <TableCell>
+                      {getFileTypeBadge(doc.filename)}
+                    </TableCell>
+                    <TableCell>
+                      {getStatusBadge(doc.status)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
                       {formatDate(doc.created_at)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <code className="text-xs text-gray-500 font-mono bg-midnight-800 px-2 py-1 rounded">
-                        {doc.content_hash.slice(0, 12)}...
+                    </TableCell>
+                    <TableCell>
+                      <code className="rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+                        {doc.content_hash.slice(0, 8)}...
                       </code>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button className="text-gray-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-midnight-800">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">Aktionen</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem>
+                            <Eye className="mr-2 h-4 w-4" />
+                            Details anzeigen
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Neu indexieren
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive focus:text-destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Löschen
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Card>
       </div>
     </div>
   )
 }
-
