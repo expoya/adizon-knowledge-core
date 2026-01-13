@@ -81,6 +81,8 @@ dmypy.json
 # Node.js / Frontend
 # -----------------------------------------------------------------------------
 node_modules/
+# Exception: include frontend/src/lib (shadcn utils)
+!frontend/src/lib/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
