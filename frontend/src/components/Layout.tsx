@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   MessageSquare,
   Upload,
@@ -7,6 +7,9 @@ import {
   Sparkles,
   Globe,
   Menu,
+  Plus,
+  Trash2,
+  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -18,16 +21,22 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
+import { useChatStore } from '@/stores/chatStore'
 
 const navItems = [
-  { to: '/', icon: MessageSquare, label: 'Chat' },
   { to: '/upload', icon: Upload, label: 'Upload' },
   { to: '/explorer', icon: Globe, label: 'Explorer' },
 ]
 
-function NavItem({ to, icon: Icon, label, onClick }: {
+function NavItem({
+  to,
+  icon: Icon,
+  label,
+  onClick,
+}: {
   to: string
   icon: React.ElementType
   label: string
@@ -36,7 +45,6 @@ function NavItem({ to, icon: Icon, label, onClick }: {
   return (
     <NavLink
       to={to}
-      end={to === '/'}
       onClick={onClick}
       className={({ isActive }) =>
         cn(
@@ -54,10 +62,43 @@ function NavItem({ to, icon: Icon, label, onClick }: {
 }
 
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
+  const location = useLocation()
+  const { chats, activeChatId, createChat, deleteChat, setActiveChat } = useChatStore()
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  const isChatRoute = location.pathname === '/' || location.pathname.startsWith('/chat')
+
+  const handleNewChat = () => {
+    createChat()
+    onNavClick?.()
+  }
+
+  const handleSelectChat = (chatId: string) => {
+    setActiveChat(chatId)
+    setDeleteConfirmId(null)
+    onNavClick?.()
+  }
+
+  const handleDeleteClick = (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation()
+    setDeleteConfirmId(chatId)
+  }
+
+  const handleConfirmDelete = (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation()
+    deleteChat(chatId)
+    setDeleteConfirmId(null)
+  }
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeleteConfirmId(null)
+  }
+
   return (
-    <>
+    <div className="flex h-full flex-col">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-3">
+      <div className="flex items-center gap-3 px-3 py-2">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-aurora-400 to-primary">
           <Database className="h-5 w-5 text-white" />
         </div>
@@ -67,23 +108,94 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
         </div>
       </div>
 
-      <Separator className="my-4" />
+      {/* New Chat Button */}
+      <div className="px-2 py-3">
+        <Button
+          onClick={handleNewChat}
+          variant="outline"
+          className="w-full justify-start gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Neuer Chat</span>
+        </Button>
+      </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1">
+      {/* Chat List */}
+      <ScrollArea className="flex-1 px-2">
+        <div className="space-y-1">
+          {chats.length === 0 ? (
+            <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+              Noch keine Chats
+            </p>
+          ) : (
+            chats.map((chat) => (
+              <div
+                key={chat.id}
+                onClick={() => handleSelectChat(chat.id)}
+                className={cn(
+                  'group relative flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors',
+                  isChatRoute && activeChatId === chat.id
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                )}
+              >
+                <MessageSquare className="h-4 w-4 shrink-0" />
+
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">{chat.name}</p>
+                </div>
+
+                {/* Delete Button / Confirm */}
+                {deleteConfirmId === chat.id ? (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      className="h-6 w-6"
+                      onClick={(e) => handleConfirmDelete(e, chat.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6"
+                      onClick={handleCancelDelete}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                    onClick={(e) => handleDeleteClick(e, chat.id)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </ScrollArea>
+
+      <Separator className="my-2" />
+
+      {/* Bottom Navigation - Upload & Explorer */}
+      <nav className="space-y-1 px-2 pb-2">
         {navItems.map((item) => (
           <NavItem key={item.to} {...item} onClick={onNavClick} />
         ))}
       </nav>
 
-      <Separator className="my-4" />
-
       {/* Footer */}
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 border-t border-border px-3 py-3 text-xs text-muted-foreground">
         <Sparkles className="h-3 w-3" />
         <span>Sovereign AI RAG</span>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -93,7 +205,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-background">
       {/* Desktop Sidebar */}
-      <aside className="hidden w-56 flex-col border-r border-border bg-card/50 p-4 md:flex">
+      <aside className="hidden w-64 flex-col border-r border-border bg-card/50 p-2 md:flex">
         <SidebarContent />
       </aside>
 
@@ -107,7 +219,7 @@ export default function Layout() {
                 <span className="sr-only">Toggle navigation menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="flex w-56 flex-col p-4">
+            <SheetContent side="left" className="flex w-64 flex-col p-2">
               <SheetHeader className="sr-only">
                 <SheetTitle>Navigation</SheetTitle>
               </SheetHeader>

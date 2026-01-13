@@ -466,29 +466,71 @@ async def knowledge_node(state: AgentState) -> AgentState:
 # -------------------------------------------------
 
 
+def _format_chat_history(messages: List[AnyMessage]) -> str:
+    """
+    Formatiert die Chat-History für den Prompt.
+
+    Nimmt die letzten Nachrichten (außer der aktuellen Frage) und
+    formatiert sie als lesbaren Gesprächsverlauf.
+
+    Args:
+        messages: Liste aller Nachrichten im State
+
+    Returns:
+        Formatierter String der Chat-History
+    """
+    if len(messages) <= 1:
+        return "(Keine vorherige Konversation)"
+
+    # Alle Nachrichten außer der letzten (aktuelle Frage)
+    history_messages = messages[:-1]
+
+    # Nur die letzten 6 Nachrichten für Kontext (3 Runden)
+    history_messages = history_messages[-6:]
+
+    if not history_messages:
+        return "(Keine vorherige Konversation)"
+
+    formatted = []
+    for msg in history_messages:
+        if isinstance(msg, HumanMessage):
+            formatted.append(f"Benutzer: {msg.content}")
+        elif isinstance(msg, AIMessage):
+            # Kürze lange Antworten
+            content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+            formatted.append(f"Assistent: {content}")
+
+    return "\n".join(formatted)
+
+
 async def generation_node(state: AgentState) -> AgentState:
     """
     Generator Node: Synthesiert finale Antwort aus Multi-Source Contexts (Phase 3).
-    
+
     Kombiniert:
+    - Chat-History (für Kontext bei Folgefragen!)
     - Knowledge Base (Vector + Graph)
     - CRM Live Data
     - SQL/IoT Data
-    
-    Der LLM versteht die Zusammenhänge zwischen den Quellen.
+
+    Der LLM versteht die Zusammenhänge zwischen den Quellen UND den Chat-Verlauf.
     """
     logger.info("✍️ [GENERATOR] Synthesizing answer from multiple sources")
-    
-    # Hole User Query
+
+    # Hole User Query (letzte HumanMessage)
     user_message = None
     for msg in reversed(state["messages"]):
         if isinstance(msg, HumanMessage):
             user_message = msg.content
             break
-    
+
     if not user_message:
         user_message = "Unbekannte Frage"
-    
+
+    # Formatiere Chat-History für Kontext
+    chat_history = _format_chat_history(state["messages"])
+    logger.info(f"  📜 Chat history: {len(state['messages'])-1} previous messages")
+
     # Sammle alle verfügbaren Informationen
     tool_outputs = state.get("tool_outputs", {})
     intent = state.get("intent", "general")
@@ -563,6 +605,7 @@ Das hilft mir, Ihnen die korrekten Informationen zu liefern."""
     try:
         response = await llm.ainvoke([
             SystemMessage(content=generation_prompt.format(
+                chat_history=chat_history,
                 context=context,
                 query=user_message
             ))

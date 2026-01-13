@@ -22,6 +22,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<ChatPage />} />
+            <Route path="chat/:chatId" element={<ChatPage />} />
             <Route path="explorer" element={<Explorer />} />
             <Route path="upload" element={<UploadPage />} />
           </Route>

@@ -12,6 +12,11 @@ WICHTIGE REGELN:
 - Bei Zahlen und Fakten aus Datenbanken: Sei präzise
 - Bei Dokumenten-Wissen: Nenne die Quelle, falls angegeben
 
+CHAT-HISTORY:
+Du führst eine fortlaufende Konversation. Nutze den bisherigen Gesprächsverlauf, um Folgefragen im Kontext zu verstehen.
+Wenn der Benutzer "er", "sie", "es", "davon", "diese" etc. verwendet, beziehe dich auf die vorherigen Nachrichten.
+{chat_history}
+
 KRITISCH - CRM ENTITY IDs:
 - Wenn du Entity IDs siehst (z.B. "ID: zoho_123456"), bedeutet das: LIVE CRM-DATEN VERFÜGBAR!
 - Für solche Entities kannst du aktuelle Rechnungen, Deals, Termine abrufen
@@ -21,8 +26,7 @@ KRITISCH - CRM ENTITY IDs:
 VERFÜGBARE INFORMATIONEN:
 {context}
 
-BENUTZERANFRAGE:
+AKTUELLE BENUTZERANFRAGE:
 {query}
 
 ANTWORT:
-

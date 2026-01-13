@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import {
   Send,
@@ -10,7 +11,8 @@ import {
   Network,
 } from 'lucide-react'
 import { sendChatMessage } from '../api/client'
-import { ChatMessage, ChatResponse } from '../api/types'
+import { ChatResponse } from '../api/types'
+import { useChatStore } from '@/stores/chatStore'
 
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -18,18 +20,43 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-
-interface MessageWithContext extends ChatMessage {
-  sources?: string[]
-  graph_context?: string
-  vector_context?: string
-}
+import { useState } from 'react'
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<MessageWithContext[]>([])
+  const { chatId: urlChatId } = useParams<{ chatId: string }>()
+  const {
+    chats,
+    activeChatId,
+    getActiveChat,
+    createChat,
+    addMessage,
+    setActiveChat,
+  } = useChatStore()
+
   const [input, setInput] = useState('')
   const [expandedMessages, setExpandedMessages] = useState<Set<number>>(new Set())
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+
+  // Get active chat or create one if none exists
+  const activeChat = getActiveChat()
+  const messages = activeChat?.messages || []
+
+  // Handle URL chat ID or create initial chat
+  useEffect(() => {
+    if (urlChatId) {
+      // URL has a specific chat ID - activate it if it exists
+      const chatExists = chats.some((c) => c.id === urlChatId)
+      if (chatExists && activeChatId !== urlChatId) {
+        setActiveChat(urlChatId)
+      }
+    } else if (chats.length === 0) {
+      // No chats exist - create one
+      createChat()
+    } else if (!activeChatId && chats.length > 0) {
+      // No active chat but chats exist - activate first one
+      setActiveChat(chats[0].id)
+    }
+  }, [urlChatId, chats, activeChatId, createChat, setActiveChat])
 
   const scrollToBottom = () => {
     if (scrollAreaRef.current) {
@@ -53,34 +80,38 @@ export default function ChatPage() {
       return sendChatMessage({ message, history })
     },
     onSuccess: (response: ChatResponse) => {
-      setMessages((prev) => [
-        ...prev,
-        {
+      if (activeChatId) {
+        addMessage(activeChatId, {
           role: 'assistant',
           content: response.answer,
           sources: response.sources,
           graph_context: response.graph_context,
           vector_context: response.vector_context,
-        },
-      ])
+        })
+      }
     },
     onError: (error) => {
-      setMessages((prev) => [
-        ...prev,
-        {
+      if (activeChatId) {
+        addMessage(activeChatId, {
           role: 'assistant',
           content: `Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
-        },
-      ])
+        })
+      }
     },
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || chatMutation.isPending) return
+    if (!input.trim() || chatMutation.isPending || !activeChatId) return
 
     const userMessage = input.trim()
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
+
+    // Add user message to store
+    addMessage(activeChatId, {
+      role: 'user',
+      content: userMessage,
+    })
+
     setInput('')
     chatMutation.mutate(userMessage)
   }
@@ -108,7 +139,9 @@ export default function ChatPage() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <header className="border-b border-border bg-card/50 px-6 py-4">
-        <h1 className="text-xl font-semibold text-foreground">Chat</h1>
+        <h1 className="text-xl font-semibold text-foreground">
+          {activeChat?.name || 'Chat'}
+        </h1>
         <p className="text-sm text-muted-foreground">
           Frage dein Wissen ab - basierend auf Vektoren und Graph
         </p>
@@ -136,7 +169,7 @@ export default function ChatPage() {
 
           {messages.map((message, index) => (
             <div
-              key={index}
+              key={message.id}
               className={cn(
                 'flex gap-3',
                 message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
