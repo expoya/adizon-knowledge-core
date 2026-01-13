@@ -12,10 +12,10 @@ Trennung von Prompts und Code für bessere Wartbarkeit, Sicherheit und einfacher
 
 ### 1. Neue Prompt-Management-Struktur
 
-Erstellt: `backend/prompts/` Ordner mit:
+Erstellt: `backend/app/prompts/` Ordner mit:
 
 ```
-prompts/
+app/prompts/
 ├── __init__.py                    # PromptLoader Utility mit Caching
 ├── README.md                      # Dokumentation
 ├── intent_classification.txt     # Router: Intent Detection
@@ -34,7 +34,7 @@ prompts/
 
 **API:**
 ```python
-from prompts import get_prompt, PromptLoader
+from app.prompts import get_prompt, PromptLoader
 
 # Lade einen Prompt
 prompt = get_prompt("intent_classification")
@@ -57,7 +57,7 @@ PromptLoader.reload("intent_classification")
 - Prompts vermischt mit Business Logic
 
 **Nachher:**
-- Import: `from prompts import get_prompt`
+- Import: `from app.prompts import get_prompt`
 - Laden: `prompt = get_prompt("intent_classification")`
 - 3 Zeilen Code statt 87 Zeilen Prompt-String
 
@@ -94,7 +94,7 @@ PromptLoader.reload("intent_classification")
 
 ### Neuen Prompt hinzufügen
 
-1. Erstelle `backend/prompts/my_new_prompt.txt`:
+1. Erstelle `backend/app/prompts/my_new_prompt.txt`:
 ```txt
 Du bist ein hilfreicher Assistent.
 
@@ -106,7 +106,7 @@ AUSGABE:
 
 2. Verwende im Code:
 ```python
-from prompts import get_prompt
+from app.prompts import get_prompt
 
 prompt = get_prompt("my_new_prompt")
 formatted = prompt.format(input="Hallo")
@@ -159,11 +159,11 @@ Alle Prompts unterstützen Python `.format()` Syntax:
 
 ### Dateien geändert
 - **Modified:** `backend/app/graph/chat_workflow.py` (Prompts extrahiert)
-- **New:** `backend/prompts/__init__.py` (PromptLoader)
-- **New:** `backend/prompts/intent_classification.txt`
-- **New:** `backend/prompts/sql_generation.txt`
-- **New:** `backend/prompts/answer_generation.txt`
-- **New:** `backend/prompts/README.md`
+- **New:** `backend/app/prompts/__init__.py` (PromptLoader)
+- **New:** `backend/app/prompts/intent_classification.txt`
+- **New:** `backend/app/prompts/sql_generation.txt`
+- **New:** `backend/app/prompts/answer_generation.txt`
+- **New:** `backend/app/prompts/README.md`
 
 ## 🚀 Next Steps
 

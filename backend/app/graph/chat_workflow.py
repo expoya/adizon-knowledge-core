@@ -11,17 +11,82 @@ The Knowledge Orchestrator is the central hub that:
 """
 
 import logging
+import time
 from typing import Dict, List, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
+from app.core.config import get_settings
 from app.core.llm import get_llm
 from app.tools.knowledge import search_knowledge_base
 from app.tools.crm import get_crm_facts
 from app.prompts import get_prompt
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
+
+# =============================================================================
+# Company Context Cache
+# =============================================================================
+
+_company_context_cache: dict = {
+    "content": None,
+    "loaded_at": 0,
+    "ttl": 300,  # 5 minutes cache
+}
+
+
+async def get_company_context() -> str:
+    """
+    Load company context from MinIO with caching.
+
+    The company context is a Markdown file that provides company-specific
+    information for the LLM (company name, products, communication style, etc.).
+
+    Returns:
+        Company context string, or empty string if not found.
+    """
+    global _company_context_cache
+
+    # Check cache validity
+    now = time.time()
+    if (
+        _company_context_cache["content"] is not None
+        and now - _company_context_cache["loaded_at"] < _company_context_cache["ttl"]
+    ):
+        return _company_context_cache["content"]
+
+    # Load from MinIO
+    from app.services.storage import get_minio_service
+
+    try:
+        minio_service = get_minio_service()
+        context_path = settings.company_context_minio_path
+
+        # Check if file exists
+        if not await minio_service.file_exists(context_path):
+            logger.info(f"Company context not found in MinIO: {context_path} (using default)")
+            _company_context_cache["content"] = ""
+            _company_context_cache["loaded_at"] = now
+            return ""
+
+        # Download and decode
+        content_bytes = await minio_service.download_file(context_path)
+        content = content_bytes.decode("utf-8")
+
+        # Update cache
+        _company_context_cache["content"] = content
+        _company_context_cache["loaded_at"] = now
+
+        logger.info(f"Company context loaded from MinIO: {context_path} ({len(content)} chars)")
+        return content
+
+    except Exception as e:
+        logger.warning(f"Failed to load company context from MinIO: {e}")
+        _company_context_cache["content"] = ""
+        _company_context_cache["loaded_at"] = now
+        return ""
 
 
 # =============================================================================
@@ -598,13 +663,17 @@ Das hilft mir, Ihnen die korrekten Informationen zu liefern."""
     
     # Generiere finale Antwort
     llm = get_llm(temperature=0.7, streaming=False)
-    
+
     # Lade Answer Generation Prompt aus File
     generation_prompt = get_prompt("answer_generation")
-    
+
+    # Lade Company Context aus MinIO (mit Cache)
+    company_context = await get_company_context()
+
     try:
         response = await llm.ainvoke([
             SystemMessage(content=generation_prompt.format(
+                company_context=company_context,
                 chat_history=chat_history,
                 context=context,
                 query=user_message

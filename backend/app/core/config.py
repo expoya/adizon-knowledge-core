@@ -177,6 +177,16 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # Company Context (System Prompt Customization)
+    # A Markdown file in MinIO that provides company-specific context for the LLM.
+    # -------------------------------------------------------------------------
+    company_context_minio_path: str = Field(
+        default="config/company_context.md",
+        alias="COMPANY_CONTEXT_MINIO_PATH",
+        description="Path to company context Markdown in MinIO bucket",
+    )
+
+    # -------------------------------------------------------------------------
     # Trooper Worker (Compute-Intensive Microservice)
     # -------------------------------------------------------------------------
     trooper_url: str = Field(
