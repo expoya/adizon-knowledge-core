@@ -8,7 +8,6 @@ import {
   ChatResponse,
   Document,
   UploadResponse,
-  GraphNode,
   GraphQueryRequest,
   GraphQueryResponse,
   KnowledgeSummary,
@@ -79,27 +78,6 @@ export async function deleteDocument(documentId: string): Promise<DeleteDocument
 export async function executeGraphQuery(request: GraphQueryRequest): Promise<GraphQueryResponse> {
   const response = await apiClient.post<GraphQueryResponse>('/graph/query', request);
   return response.data;
-}
-
-interface PendingNodesResponse {
-  nodes: GraphNode[];
-  count: number;
-}
-
-export async function getPendingNodes(): Promise<GraphNode[]> {
-  const response = await apiClient.get<PendingNodesResponse>('/graph/pending');
-  return response.data.nodes.map((node) => ({
-    ...node,
-    status: 'PENDING' as const,
-  }));
-}
-
-export async function approveNodes(nodeIds: string[]): Promise<void> {
-  await apiClient.post('/graph/approve', { node_ids: nodeIds });
-}
-
-export async function rejectNodes(nodeIds: string[]): Promise<void> {
-  await apiClient.post('/graph/reject', { node_ids: nodeIds });
 }
 
 // =============================================================================

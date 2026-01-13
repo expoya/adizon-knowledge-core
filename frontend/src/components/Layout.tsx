@@ -22,9 +22,9 @@ import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 
 const navItems = [
-  { to: '/explorer', icon: Globe, label: 'Explorer' },
   { to: '/', icon: MessageSquare, label: 'Chat' },
   { to: '/upload', icon: Upload, label: 'Upload' },
+  { to: '/explorer', icon: Globe, label: 'Explorer' },
 ]
 
 function NavItem({ to, icon: Icon, label, onClick }: {

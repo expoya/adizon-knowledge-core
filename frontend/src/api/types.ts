@@ -38,18 +38,6 @@ export interface UploadResponse {
 }
 
 // Graph Types
-export type NodeStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-
-export interface GraphNode {
-  id: string;
-  type: string;
-  name: string;
-  status: NodeStatus;
-  source_file?: string;
-  source_document_id?: string;
-  created_at?: string;
-}
-
 export interface GraphQueryRequest {
   cypher: string;
   parameters?: Record<string, unknown>;

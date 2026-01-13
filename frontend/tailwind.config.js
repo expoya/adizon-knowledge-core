@@ -69,12 +69,14 @@ export default {
   		},
   		fontFamily: {
   			sans: [
-  				'Geist',
+  				'Inter',
   				'system-ui',
+  				'-apple-system',
   				'sans-serif'
   			],
   			mono: [
-  				'Geist Mono',
+  				'ui-monospace',
+  				'SFMono-Regular',
   				'monospace'
   			]
   		},
