@@ -14,7 +14,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.graph.chat_workflow import chat_workflow
 
@@ -34,7 +34,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
-    message: str
+    message: str = Field(..., min_length=1, description="The user's message (cannot be empty)")
     history: Optional[List[ChatMessage]] = None
 
 

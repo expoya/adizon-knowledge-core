@@ -9,6 +9,8 @@ Also includes CRM synchronization endpoint.
 import hashlib
 import json
 import logging
+import os
+import re
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -22,7 +24,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,8 +41,134 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Security: Filename Sanitization
+# =============================================================================
+
+# Whitelist pattern: Only alphanumeric, dots, underscores, hyphens allowed
+# This prevents path traversal, command injection, and filesystem issues
+SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9._-]+$')
+
+# Maximum filename length to prevent DoS and filesystem issues
+MAX_FILENAME_LENGTH = 255
+
+# =============================================================================
+# Security: File Extension Validation
+# =============================================================================
+
+# Dangerous file extensions that should be rejected
+# These could be executed or pose security risks if stored
+DANGEROUS_EXTENSIONS = {
+    # Executables
+    'exe', 'dll', 'so', 'dylib',
+    # Scripts
+    'sh', 'bash', 'bat', 'cmd', 'ps1', 'vbs', 'js', 'jse', 'wsf', 'wsh',
+    # Compiled code
+    'pyc', 'pyo', 'class', 'jar', 'war', 'ear',
+    # Binary/system
+    'bin', 'com', 'msi', 'app', 'deb', 'rpm',
+    # Potentially dangerous archives (can contain executables)
+    'scr', 'pif', 'hta', 'cpl',
+}
+
+
+def validate_file_extension(filename: str) -> tuple[bool, str]:
+    """
+    Validate that a file extension is not on the dangerous list.
+
+    Args:
+        filename: The filename to check
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if '.' not in filename:
+        return True, ""  # No extension is OK
+
+    ext = filename.rsplit('.', 1)[-1].lower()
+
+    if ext in DANGEROUS_EXTENSIONS:
+        return False, f"File extension '.{ext}' is not allowed for security reasons"
+
+    return True, ""
+
+
+def sanitize_filename(filename: str | None) -> str:
+    """
+    Sanitize a user-provided filename to prevent security vulnerabilities.
+
+    Security measures:
+    1. Extract basename to prevent path traversal (../, ..\\)
+    2. Whitelist approach: Only allow safe characters (alphanumeric, ._-)
+    3. Replace or remove dangerous characters
+    4. Enforce maximum length
+    5. Provide fallback for empty/invalid filenames
+
+    Args:
+        filename: The raw filename from user upload
+
+    Returns:
+        A safe filename that can be used in storage paths
+
+    Raises:
+        HTTPException: If filename cannot be sanitized to a valid name
+    """
+    if not filename:
+        return "unnamed_document"
+
+    # Step 1: Extract basename to prevent path traversal
+    # os.path.basename handles both Unix (/) and Windows (\\) separators
+    safe_name = os.path.basename(filename)
+
+    # Step 2: Remove any remaining path traversal attempts
+    # Handle edge cases like "....//", encoded sequences, etc.
+    safe_name = safe_name.replace('..', '')
+    safe_name = safe_name.replace('/', '')
+    safe_name = safe_name.replace('\\', '')
+
+    # Step 3: Apply whitelist - replace non-allowed characters with underscore
+    # This handles shell metacharacters ($, `, ;, |, &, etc.),
+    # special filesystem chars (<, >, :, ", ?, *),
+    # and control characters (\n, \r, \x00, etc.)
+    sanitized_chars = []
+    for char in safe_name:
+        if re.match(r'[a-zA-Z0-9._-]', char):
+            sanitized_chars.append(char)
+        else:
+            # Replace dangerous chars with underscore
+            sanitized_chars.append('_')
+
+    safe_name = ''.join(sanitized_chars)
+
+    # Step 4: Clean up multiple consecutive underscores
+    safe_name = re.sub(r'_+', '_', safe_name)
+
+    # Step 5: Remove leading/trailing underscores and dots (hidden files prevention)
+    safe_name = safe_name.strip('_.')
+
+    # Step 6: Enforce maximum length
+    if len(safe_name) > MAX_FILENAME_LENGTH:
+        # Preserve extension if present
+        if '.' in safe_name:
+            name_part, ext = safe_name.rsplit('.', 1)
+            max_name_len = MAX_FILENAME_LENGTH - len(ext) - 1
+            safe_name = f"{name_part[:max_name_len]}.{ext}"
+        else:
+            safe_name = safe_name[:MAX_FILENAME_LENGTH]
+
+    # Step 7: Final validation - must have at least one valid character
+    if not safe_name or not SAFE_FILENAME_PATTERN.match(safe_name):
+        # Generate a safe fallback name
+        return "document"
+
+    logger.debug(f"Filename sanitized: '{filename}' -> '{safe_name}'")
+    return safe_name
+
+
 class DocumentResponse(BaseModel):
     """Response model for document operations."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: str
     filename: str
@@ -51,9 +179,6 @@ class DocumentResponse(BaseModel):
     created_at: str
     is_duplicate: bool = False
     message: str | None = None
-
-    class Config:
-        from_attributes = True
 
 
 class CRMSyncRequest(BaseModel):
@@ -119,8 +244,12 @@ async def upload_document(
     
     # Generate unique ID and storage path
     doc_id = uuid.uuid4()
-    storage_path = f"documents/{doc_id}/{file.filename}"
-    
+
+    # SECURITY: Sanitize filename to prevent path traversal and injection attacks
+    # Uses whitelist approach - only alphanumeric, dots, underscores, hyphens allowed
+    safe_filename = sanitize_filename(file.filename)
+    storage_path = f"documents/{doc_id}/{safe_filename}"
+
     # Upload to MinIO
     try:
         await minio.upload_file(storage_path, content)
@@ -129,27 +258,28 @@ async def upload_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload file to storage: {str(e)}",
         )
-    
+
     # Create database record
+    # Store the sanitized filename, not the raw user input
     document = KnowledgeDocument(
         id=doc_id,
-        filename=file.filename or "unknown",
+        filename=safe_filename,
         content_hash=content_hash,
         file_size=file_size,
         storage_path=storage_path,
         status=DocumentStatus.PENDING,
     )
-    
+
     session.add(document)
     await session.commit()
     await session.refresh(document)
-    
+
     # Trigger background processing
     background_tasks.add_task(
         run_ingestion_workflow,
         document_id=str(doc_id),
         storage_path=storage_path,
-        filename=file.filename or "unknown",
+        filename=safe_filename,
     )
     
     return DocumentResponse(

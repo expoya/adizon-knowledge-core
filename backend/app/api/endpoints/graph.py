@@ -4,10 +4,28 @@ Graph API Endpoint for Neo4j queries.
 Provides endpoints for:
 - Executing Cypher queries (for admin/review purposes)
 - Approving/rejecting pending nodes
+
+SECURITY NOTE:
+=============
+The /graph/query endpoint accepts arbitrary Cypher queries. To prevent
+injection attacks, we validate queries against a strict whitelist of
+allowed operations. Only READ operations (MATCH...RETURN) are permitted.
+
+When user input is incorporated into queries (like node IDs), ALWAYS use
+Neo4j parameters ($variable) instead of string interpolation. This ensures
+the input is properly escaped and cannot modify query structure.
+
+GOOD (parameterized):
+  MATCH (n) WHERE n.name = $name RETURN n
+  parameters={"name": user_input}
+
+BAD (string interpolation - NEVER DO THIS):
+  f"MATCH (n) WHERE n.name = '{user_input}' RETURN n"
 """
 
 import logging
-from typing import Annotated, Any, List
+import re
+from typing import Annotated, Any, List, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -16,6 +34,104 @@ from app.services.graph_store import GraphStoreService, get_graph_store_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Security: Cypher Query Validation
+# =============================================================================
+
+class CypherSecurityError(Exception):
+    """Raised when a Cypher query fails security validation."""
+    pass
+
+
+# Dangerous Cypher keywords that indicate write/admin operations
+# These are checked case-insensitively using word boundaries
+DANGEROUS_CYPHER_PATTERNS = [
+    # Data modification
+    (r'\bDELETE\b', "DELETE operations are not allowed"),
+    (r'\bDETACH\s+DELETE\b', "DETACH DELETE operations are not allowed"),
+    (r'\bCREATE\b', "CREATE operations are not allowed"),
+    (r'\bMERGE\b', "MERGE operations are not allowed (can create nodes)"),
+    (r'\bSET\b', "SET operations are not allowed (modifies properties)"),
+    (r'\bREMOVE\b', "REMOVE operations are not allowed"),
+
+    # Schema operations
+    (r'\bDROP\b', "DROP operations are not allowed"),
+    (r'\bCREATE\s+INDEX\b', "Index creation is not allowed"),
+    (r'\bCREATE\s+CONSTRAINT\b', "Constraint creation is not allowed"),
+
+    # Admin procedures
+    (r'\bCALL\s+dbms\.', "CALL dbms.* procedures are not allowed (admin functions)"),
+    (r'\bCALL\s+db\.', "CALL db.* procedures are not allowed"),
+    (r'\bCALL\s+apoc\.', "CALL apoc.* procedures are not allowed"),
+
+    # File access (SSRF/LFI)
+    (r'\bLOAD\s+CSV\b', "LOAD CSV is not allowed (file access)"),
+
+    # Iteration that could be used for DoS or write operations
+    (r'\bFOREACH\b', "FOREACH is not allowed (can contain write operations)"),
+
+    # Subquery writes
+    (r'\bCALL\s*\{', "Subqueries with CALL {} are not allowed"),
+]
+
+
+def validate_cypher_query(cypher: str) -> Tuple[bool, str]:
+    """
+    Validate a Cypher query for security.
+
+    This implements a blacklist approach for dangerous operations.
+    Only read-only queries (MATCH...RETURN, MATCH...WHERE...RETURN) are allowed.
+
+    Args:
+        cypher: The Cypher query string to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+        If is_valid is True, error_message is empty.
+        If is_valid is False, error_message explains why.
+    """
+    if not cypher or not cypher.strip():
+        return False, "Query cannot be empty"
+
+    # Normalize for pattern matching (case-insensitive)
+    cypher_normalized = cypher.strip()
+
+    # Check against all dangerous patterns
+    for pattern, error_message in DANGEROUS_CYPHER_PATTERNS:
+        if re.search(pattern, cypher_normalized, re.IGNORECASE):
+            logger.warning(f"Cypher security: Blocked query matching pattern '{pattern}'")
+            return False, error_message
+
+    # Additional heuristic: Query should start with MATCH, OPTIONAL MATCH, WITH, or RETURN
+    # This is a whitelist check for the query structure
+    valid_starts = [
+        r'^\s*MATCH\b',
+        r'^\s*OPTIONAL\s+MATCH\b',
+        r'^\s*WITH\b',
+        r'^\s*RETURN\b',
+        r'^\s*UNWIND\b',
+    ]
+
+    starts_with_valid = any(
+        re.search(pattern, cypher_normalized, re.IGNORECASE)
+        for pattern in valid_starts
+    )
+
+    if not starts_with_valid:
+        return False, (
+            "Query must start with MATCH, OPTIONAL MATCH, WITH, UNWIND, or RETURN. "
+            "Only read operations are allowed."
+        )
+
+    # Query should end with RETURN (to ensure it's a read query)
+    # Allow LIMIT, ORDER BY, SKIP after RETURN
+    if not re.search(r'\bRETURN\b', cypher_normalized, re.IGNORECASE):
+        return False, "Query must contain a RETURN clause (read-only queries required)"
+
+    logger.debug(f"Cypher query passed security validation: {cypher[:50]}...")
+    return True, ""
 
 
 # =============================================================================
@@ -118,9 +234,23 @@ async def execute_graph_query(
     Execute a Cypher query against the Neo4j graph.
 
     This endpoint is intended for admin/review purposes.
-    Use with caution - allows arbitrary Cypher execution.
+    Only READ operations are allowed (MATCH...RETURN).
+
+    SECURITY: All queries are validated before execution to prevent:
+    - Data modification (CREATE, DELETE, SET, MERGE)
+    - Admin operations (CALL dbms.*)
+    - File access (LOAD CSV)
     """
     logger.info(f"Executing Cypher query: {request.cypher[:100]}...")
+
+    # SECURITY: Validate query before execution
+    is_valid, error_message = validate_cypher_query(request.cypher)
+    if not is_valid:
+        logger.warning(f"Cypher security validation failed: {error_message}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Query not allowed: {error_message}",
+        )
 
     try:
         records = await graph_store.query(

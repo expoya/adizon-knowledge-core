@@ -1,8 +1,13 @@
 /**
  * API Client for Adizon Knowledge Core Backend
+ *
+ * Features:
+ * - Axios instance with response interceptors
+ * - Centralized error handling
+ * - TypeScript interfaces for all endpoints
  */
 
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import {
   ChatRequest,
   ChatResponse,
@@ -12,6 +17,7 @@ import {
   GraphQueryResponse,
   KnowledgeSummary,
 } from './types';
+import { parseApiError, ApiError } from './errors';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
@@ -21,7 +27,63 @@ const apiClient: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000, // 30 second timeout
 });
+
+// =============================================================================
+// Custom Error Class
+// =============================================================================
+
+/**
+ * Custom error class that includes parsed API error information.
+ * Use with: error instanceof ApiRequestError
+ */
+export class ApiRequestError extends Error {
+  public readonly apiError: ApiError;
+
+  constructor(apiError: ApiError) {
+    super(apiError.message);
+    this.name = 'ApiRequestError';
+    this.apiError = apiError;
+  }
+}
+
+// =============================================================================
+// Response Interceptor - Global Error Handling
+// =============================================================================
+
+/**
+ * Response interceptor for centralized error handling.
+ *
+ * Transforms backend errors into normalized ApiError objects:
+ * - HTTP 422: Pydantic validation errors with field details
+ * - HTTP 400/403: Business logic and security errors
+ * - HTTP 503: Service unavailable warnings
+ * - Network errors: Connection issues
+ */
+apiClient.interceptors.response.use(
+  // Success handler - pass through
+  (response) => response,
+
+  // Error handler - parse and transform
+  (error: AxiosError) => {
+    const apiError = parseApiError(error);
+
+    // Log errors for debugging (only in development)
+    if (import.meta.env.DEV) {
+      console.error('[API Error]', {
+        status: apiError.status,
+        type: apiError.type,
+        message: apiError.message,
+        field: apiError.field,
+        url: error.config?.url,
+      });
+    }
+
+    // Throw a custom error with the parsed information
+    throw new ApiRequestError(apiError);
+  }
+);
 
 // =============================================================================
 // Chat API

@@ -10,9 +10,11 @@ import {
   RefreshCw,
   Clock,
   Trash2,
+  ShieldAlert,
 } from 'lucide-react';
-import { uploadDocument, getDocuments, deleteDocument } from '../api/client';
+import { uploadDocument, getDocuments, deleteDocument, ApiRequestError } from '../api/client';
 import { Document } from '../api/types';
+import { useApiError } from '../hooks/useApiError';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,12 +26,68 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+
+// =============================================================================
+// File Validation - First Line of Defense (Client-Side)
+// =============================================================================
+
+/**
+ * Allowed file extensions (must match backend DANGEROUS_EXTENSIONS blacklist inverse)
+ * This is the first line of defense - backend validates again
+ */
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt', '.md', '.csv', '.json'];
+
+/**
+ * MIME types for accept attribute
+ */
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'application/json',
+].join(',');
+
+/**
+ * Accept attribute value for file input
+ * Combines extensions and MIME types for maximum compatibility
+ */
+const FILE_ACCEPT = `${ALLOWED_EXTENSIONS.join(',')},${ALLOWED_MIME_TYPES}`;
+
+/**
+ * Validate file extension on client-side
+ * Returns error message if invalid, null if valid
+ */
+function validateFileExtension(filename: string): string | null {
+  const ext = filename.toLowerCase().split('.').pop();
+  if (!ext) {
+    return 'Datei hat keine Erweiterung';
+  }
+
+  const isAllowed = ALLOWED_EXTENSIONS.some(
+    (allowed) => allowed.toLowerCase() === `.${ext}`
+  );
+
+  if (!isAllowed) {
+    return `Dateityp .${ext} ist nicht erlaubt. Erlaubt: ${ALLOWED_EXTENSIONS.join(', ')}`;
+  }
+
+  return null;
+}
+
+// =============================================================================
+// Component
+// =============================================================================
 
 export default function UploadPage() {
   const [isDragging, setIsDragging] = useState(false);
+  const [clientValidationError, setClientValidationError] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const { showError, showSuccess, parseError } = useApiError();
 
   const {
     data: documents = [],
@@ -43,8 +101,18 @@ export default function UploadPage() {
 
   const uploadMutation = useMutation({
     mutationFn: uploadDocument,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      // Show success toast with filename
+      if (data.message?.includes('duplicate')) {
+        showSuccess(`"${data.filename}" bereits vorhanden (Duplikat erkannt)`);
+      } else {
+        showSuccess(`"${data.filename}" erfolgreich hochgeladen!`);
+      }
+    },
+    onError: (error) => {
+      // Error is automatically parsed by interceptor
+      showError(error);
     },
   });
 
@@ -52,6 +120,10 @@ export default function UploadPage() {
     mutationFn: deleteDocument,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      showSuccess('Dokument erfolgreich gelöscht!');
+    },
+    onError: (error) => {
+      showError(error);
     },
   });
 
@@ -64,6 +136,29 @@ export default function UploadPage() {
       deleteMutation.mutate(doc.id);
     }
   };
+
+  /**
+   * Process files with client-side validation
+   */
+  const processFiles = useCallback(
+    (files: File[]) => {
+      setClientValidationError(null);
+
+      for (const file of files) {
+        // Client-side validation (first line of defense)
+        const validationError = validateFileExtension(file.name);
+        if (validationError) {
+          setClientValidationError(validationError);
+          showError(new Error(validationError), validationError);
+          continue; // Skip this file, try others
+        }
+
+        // Upload file - backend will validate again
+        uploadMutation.mutate(file);
+      }
+    },
+    [uploadMutation, showError]
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -79,23 +174,34 @@ export default function UploadPage() {
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
-
       const files = Array.from(e.dataTransfer.files);
-      files.forEach((file) => {
-        uploadMutation.mutate(file);
-      });
+      processFiles(files);
     },
-    [uploadMutation]
+    [processFiles]
   );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      Array.from(files).forEach((file) => {
-        uploadMutation.mutate(file);
-      });
+      processFiles(Array.from(files));
     }
     e.target.value = '';
+  };
+
+  /**
+   * Get error details for display
+   */
+  const getUploadErrorDetails = () => {
+    if (!uploadMutation.error) return null;
+
+    const apiError = parseError(uploadMutation.error);
+
+    return {
+      message: apiError.message,
+      type: apiError.type,
+      isSecurityError: apiError.type === 'security',
+      isValidationError: apiError.type === 'validation',
+    };
   };
 
   const getStatusBadge = (status: string) => {
@@ -153,6 +259,8 @@ export default function UploadPage() {
     });
   };
 
+  const errorDetails = getUploadErrorDetails();
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -164,7 +272,7 @@ export default function UploadPage() {
               Dokumente hochladen
             </h1>
             <p className="text-sm text-muted-foreground">
-              Lade PDF, DOCX oder TXT Dateien hoch
+              Lade PDF, DOCX, TXT oder Markdown Dateien hoch
             </p>
           </div>
 
@@ -194,11 +302,12 @@ export default function UploadPage() {
             }`}
           >
             <CardContent className="p-12">
+              {/* File input with accept attribute for first-line defense */}
               <input
                 type="file"
                 id="file-upload"
                 multiple
-                accept=".pdf,.docx,.txt,.md"
+                accept={FILE_ACCEPT}
                 onChange={handleFileSelect}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
@@ -234,49 +343,60 @@ export default function UploadPage() {
 
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <FileText className="h-4 w-4" />
-                  <span>PDF, DOCX, TXT, MD</span>
+                  <span>PDF, DOCX, TXT, MD, CSV, JSON</span>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Upload Status Alerts */}
-          {uploadMutation.isSuccess && (
-            <Alert className="border-green-500/30 bg-green-500/10">
-              <CheckCircle2 className="h-4 w-4 text-green-400" />
-              <AlertDescription className="text-green-400">
-                Datei erfolgreich hochgeladen!
+          {/* Client-Side Validation Error */}
+          {clientValidationError && (
+            <Alert variant="destructive" className="border-orange-500/30 bg-orange-500/10">
+              <ShieldAlert className="h-4 w-4 text-orange-400" />
+              <AlertTitle className="text-orange-400">Ungültiger Dateityp</AlertTitle>
+              <AlertDescription className="text-orange-300">
+                {clientValidationError}
               </AlertDescription>
             </Alert>
           )}
 
-          {uploadMutation.isError && (
-            <Alert variant="destructive" className="border-red-500/30 bg-red-500/10">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Fehler beim Hochladen:{' '}
-                {uploadMutation.error instanceof Error
-                  ? uploadMutation.error.message
-                  : 'Unbekannter Fehler'}
+          {/* Upload Error with detailed message */}
+          {uploadMutation.isError && errorDetails && (
+            <Alert
+              variant="destructive"
+              className={`${
+                errorDetails.isSecurityError
+                  ? 'border-orange-500/30 bg-orange-500/10'
+                  : 'border-red-500/30 bg-red-500/10'
+              }`}
+            >
+              {errorDetails.isSecurityError ? (
+                <ShieldAlert className="h-4 w-4 text-orange-400" />
+              ) : (
+                <AlertCircle className="h-4 w-4" />
+              )}
+              <AlertTitle className={errorDetails.isSecurityError ? 'text-orange-400' : ''}>
+                {errorDetails.isSecurityError
+                  ? 'Sicherheitsprüfung fehlgeschlagen'
+                  : errorDetails.isValidationError
+                  ? 'Validierungsfehler'
+                  : 'Fehler beim Hochladen'}
+              </AlertTitle>
+              <AlertDescription className={errorDetails.isSecurityError ? 'text-orange-300' : ''}>
+                {errorDetails.message}
               </AlertDescription>
             </Alert>
           )}
 
-          {deleteMutation.isSuccess && (
-            <Alert className="border-green-500/30 bg-green-500/10">
-              <CheckCircle2 className="h-4 w-4 text-green-400" />
-              <AlertDescription className="text-green-400">
-                Dokument erfolgreich gelöscht!
-              </AlertDescription>
-            </Alert>
-          )}
-
+          {/* Delete Error */}
           {deleteMutation.isError && (
             <Alert variant="destructive" className="border-red-500/30 bg-red-500/10">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
                 Fehler beim Löschen:{' '}
-                {deleteMutation.error instanceof Error
+                {deleteMutation.error instanceof ApiRequestError
+                  ? deleteMutation.error.apiError.message
+                  : deleteMutation.error instanceof Error
                   ? deleteMutation.error.message
                   : 'Unbekannter Fehler'}
               </AlertDescription>

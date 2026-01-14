@@ -1,12 +1,31 @@
 """
 SQL Tools für LangGraph Agents.
 Ermöglicht Zugriff auf externe SQL-Datenbanken.
+
+SECURITY ARCHITECTURE NOTE:
+==========================
+The database user configured for this service MUST have READ-ONLY permissions
+at the database level. This is a critical defense-in-depth measure:
+
+1. Create a dedicated read-only database user:
+   CREATE USER sql_tool_reader WITH PASSWORD 'xxx';
+   GRANT CONNECT ON DATABASE yourdb TO sql_tool_reader;
+   GRANT USAGE ON SCHEMA public TO sql_tool_reader;
+   GRANT SELECT ON ALL TABLES IN SCHEMA public TO sql_tool_reader;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO sql_tool_reader;
+
+2. Use this user in the connection string (ERP_DATABASE_URL env var).
+
+This ensures that even if SQL injection bypasses application-level validation,
+the attacker cannot modify data due to database-level permissions.
 """
 
 import json
 import logging
-from typing import List
+import re
+from typing import List, Tuple
 
+import sqlparse
 from langchain_core.tools import tool
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
@@ -21,29 +40,152 @@ _EXECUTE_SQL_QUERY_DESCRIPTION = get_prompt("tool_execute_sql_query")
 _GET_SQL_SCHEMA_DESCRIPTION = get_prompt("tool_get_sql_schema")
 
 
+# =============================================================================
+# Security: SQL Query Validation using sqlparse
+# =============================================================================
+
+class SQLSecurityError(Exception):
+    """Raised when a SQL query fails security validation."""
+    pass
+
+
+def validate_sql_query(query: str) -> Tuple[bool, str]:
+    """
+    Validate a SQL query for security using sqlparse.
+
+    This implements a whitelist approach:
+    1. Parse the query using sqlparse
+    2. Verify exactly ONE statement (no statement stacking)
+    3. Verify the statement type is SELECT (whitelist)
+    4. Check for suspicious patterns that indicate injection attempts
+
+    Args:
+        query: The SQL query string to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+        If is_valid is True, error_message is empty.
+        If is_valid is False, error_message explains why.
+    """
+    if not query or not query.strip():
+        return False, "Query cannot be empty"
+
+    # Step 1: Parse with sqlparse
+    try:
+        statements = sqlparse.parse(query)
+    except Exception as e:
+        logger.warning(f"SQL parsing failed: {e}")
+        return False, f"Failed to parse SQL query: {e}"
+
+    # Step 2: Verify exactly ONE statement (prevents statement stacking)
+    # Filter out empty statements (sqlparse may return empty ones for trailing semicolons)
+    non_empty_statements = [s for s in statements if s.get_type() != 'UNKNOWN' or str(s).strip()]
+
+    if len(non_empty_statements) == 0:
+        return False, "No valid SQL statement found"
+
+    if len(non_empty_statements) > 1:
+        return False, (
+            "Multiple SQL statements detected (statement stacking). "
+            "Only single SELECT queries are allowed."
+        )
+
+    statement = non_empty_statements[0]
+
+    # Step 3: Verify statement type is SELECT (whitelist approach)
+    stmt_type = statement.get_type()
+
+    # sqlparse returns the type as uppercase string
+    if stmt_type != 'SELECT':
+        return False, (
+            f"Statement type '{stmt_type}' is not allowed. "
+            f"Only SELECT queries are permitted."
+        )
+
+    # Step 4: Check for dangerous patterns that might bypass sqlparse detection
+    query_upper = query.upper()
+
+    # 4a: Check for UNION (data exfiltration from other tables)
+    if 'UNION' in query_upper:
+        return False, (
+            "UNION queries are not allowed. "
+            "This prevents unauthorized access to other tables."
+        )
+
+    # 4b: Check for information_schema access (schema enumeration)
+    if 'INFORMATION_SCHEMA' in query_upper:
+        return False, (
+            "Access to INFORMATION_SCHEMA is not allowed. "
+            "Use the get_sql_schema tool to inspect table structures."
+        )
+
+    # 4c: Check for SQL comments (often used to hide injection)
+    if '--' in query or '/*' in query or '#' in query:
+        return False, (
+            "SQL comments (-- or /* or #) are not allowed. "
+            "Please provide a clean query without comments."
+        )
+
+    # 4d: Check for suspicious always-true conditions (common injection pattern)
+    # This is a heuristic - legitimate queries rarely use these patterns
+    always_true_patterns = [
+        r"'\s*'\s*=\s*'",       # '' = ''
+        r"1\s*=\s*1",           # 1=1
+        r"'1'\s*=\s*'1'",       # '1'='1'
+        r"OR\s+1\s*=\s*1",      # OR 1=1
+        r"OR\s+'1'\s*=\s*'1'",  # OR '1'='1'
+    ]
+
+    for pattern in always_true_patterns:
+        if re.search(pattern, query_upper):
+            return False, (
+                "Suspicious pattern detected (always-true condition). "
+                "This pattern is commonly used in SQL injection attacks."
+            )
+
+    # 4e: Check for time-based blind injection attempts
+    time_functions = ['SLEEP', 'WAITFOR', 'BENCHMARK', 'PG_SLEEP']
+    for func in time_functions:
+        if func in query_upper:
+            return False, (
+                f"Time-based function '{func}' is not allowed. "
+                "This pattern is commonly used in blind SQL injection."
+            )
+
+    # 4f: Check for subqueries that could access other tables
+    # This is optional - you might want to allow subqueries in some cases
+    # Uncomment if you want strict single-table access:
+    # if re.search(r'\(\s*SELECT', query_upper):
+    #     return False, "Subqueries are not allowed for security reasons."
+
+    logger.debug(f"SQL query passed security validation: {query[:50]}...")
+    return True, ""
+
+
 @tool
 def execute_sql_query(query: str, source_id: str = "erp_postgres") -> str:
     """Führt eine SQL SELECT Query auf einer externen Datenbank aus (z.B. IoT, ERP).
-    
+
     Nur SELECT Queries sind erlaubt (keine INSERT, UPDATE, DELETE).
-    
+    Security validation using sqlparse ensures single-statement SELECT only.
+
     Args:
         query: Die SQL SELECT Query
         source_id: Die ID der Datenquelle (z.B. "iot_database", "erp_postgres")
-        
+
     Returns:
         Query-Ergebnisse als JSON
     """
     logger.info(f"🔧 SQL Tool: Executing query on source '{source_id}'")
     logger.debug(f"Query: {query[:200]}...")
-    
-    # Sicherheitscheck: Nur SELECT Queries erlauben
-    query_upper = query.strip().upper()
-    if not query_upper.startswith("SELECT"):
-        error_msg = "Error: Nur SELECT Queries sind erlaubt. Keine INSERT, UPDATE oder DELETE."
-        logger.warning(f"❌ {error_msg}")
-        return error_msg
-    
+
+    # SECURITY: Comprehensive query validation using sqlparse
+    # This is the first line of defense - validates query structure and patterns
+    is_valid, error_message = validate_sql_query(query)
+    if not is_valid:
+        logger.warning(f"❌ SQL security validation failed: {error_message}")
+        return f"Security Error: {error_message}"
+
     try:
         # Hole SQL Connector Service
         connector = get_sql_connector_service()

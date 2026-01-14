@@ -9,6 +9,7 @@ import {
   ChevronUp,
   FileText,
   Network,
+  AlertTriangle,
 } from 'lucide-react'
 import { sendChatMessage } from '../api/client'
 import { ChatResponse } from '../api/types'
@@ -21,6 +22,30 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
+import { SafeMarkdown } from '@/components/SafeMarkdown'
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Check if graph data is unavailable based on response metadata
+ */
+function isGraphUnavailable(graphContext: string | undefined): boolean {
+  if (!graphContext) return true;
+
+  const unavailableIndicators = [
+    'Keine Graph-Daten verfügbar',
+    'Graph unavailable',
+    'Graph nicht verfügbar',
+    'Neo4j nicht erreichbar',
+    'Graph service unavailable',
+  ];
+
+  return unavailableIndicators.some(indicator =>
+    graphContext.toLowerCase().includes(indicator.toLowerCase())
+  );
+}
 
 export default function ChatPage() {
   const { chatId: urlChatId } = useParams<{ chatId: string }>()
@@ -202,7 +227,25 @@ export default function ChatPage() {
                     : 'rounded-bl-md border border-border bg-muted/50'
                 )}
               >
-                <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                {/* Message Content with Safe Markdown Rendering */}
+                {message.role === 'user' ? (
+                  <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                ) : (
+                  <SafeMarkdown
+                    content={message.content}
+                    className="text-sm text-foreground"
+                  />
+                )}
+
+                {/* Partial Success Warning: Graph Unavailable */}
+                {message.role === 'assistant' && isGraphUnavailable(message.graph_context) && (
+                  <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                    <span className="text-amber-200">
+                      Graph-Daten aktuell nicht verfügbar. Antwort basiert nur auf Vektor-Suche.
+                    </span>
+                  </div>
+                )}
 
                 {/* Context Details for Assistant */}
                 {message.role === 'assistant' &&
