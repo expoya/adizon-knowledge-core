@@ -252,7 +252,12 @@ async def upload_document(
 
     # Upload to MinIO
     try:
-        await minio.upload_file(storage_path, content)
+        await minio.upload_bytes(
+            content=content,
+            object_name=storage_path,
+            content_type=file.content_type or "application/octet-stream",
+            filename=safe_filename,
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
