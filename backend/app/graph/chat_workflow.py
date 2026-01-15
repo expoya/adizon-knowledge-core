@@ -288,35 +288,35 @@ async def knowledge_node(state: AgentState) -> AgentState:
                     # Einfache, präzise Query mit exaktem Namen
                     cypher_query = """
                     MATCH (n)
-                    WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
+                    WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'twenty_' OR n.source_id STARTS WITH 'iot_')
                       AND (
                         toLower(n.name) = toLower($name)
                         OR toLower(n.company) = toLower($name)
                         OR toLower(n.account_name) = toLower($name)
                         OR (toLower(n.first_name) + ' ' + toLower(n.last_name)) = toLower($name)
                       )
-                    RETURN 
+                    RETURN
                       n.source_id as source_id,
                       coalesce(n.name, n.account_name, n.company, n.first_name + ' ' + n.last_name) as name,
                       labels(n)[0] as type,
                       100 as score
-                    
+
                     UNION
-                    
+
                     // Fallback: Partial match if exact not found
                     MATCH (n)
-                    WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'iot_')
+                    WHERE (n.source_id STARTS WITH 'zoho_' OR n.source_id STARTS WITH 'twenty_' OR n.source_id STARTS WITH 'iot_')
                       AND (
                         toLower(n.name) CONTAINS toLower($name)
                         OR toLower(n.company) CONTAINS toLower($name)
                         OR toLower(n.account_name) CONTAINS toLower($name)
                       )
-                    RETURN 
+                    RETURN
                       n.source_id as source_id,
                       coalesce(n.name, n.account_name, n.company) as name,
                       labels(n)[0] as type,
                       50 as score
-                    
+
                     ORDER BY score DESC
                     LIMIT 3
                     """

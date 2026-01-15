@@ -23,11 +23,18 @@ app/
 ├── services/
 │   └── crm_factory.py            # Factory for loading providers
 └── integrations/
-    ├── zoho/                     # Zoho CRM Plugin (Expoya Addon)
+    ├── zoho/                     # Zoho CRM Plugin
     │   ├── __init__.py
     │   ├── client.py             # OAuth2 client with token refresh
     │   └── provider.py           # ZohoCRMProvider implementation
-    └── [future providers]/
+    └── twenty/                   # Twenty CRM Plugin
+        ├── __init__.py
+        ├── client.py             # REST client with Bearer token auth
+        ├── schema.py             # Entity mapping (People, Companies, etc.)
+        ├── fetchers.py           # Cursor-based pagination
+        ├── processors.py         # Nested field flattening
+        ├── queries.py            # Live facts queries
+        └── provider.py           # TwentyCRMProvider implementation
 ```
 
 ## 🔌 Interface Contract
@@ -112,13 +119,17 @@ print(facts)
 
 ```bash
 # === CRM Provider Selection ===
-ACTIVE_CRM_PROVIDER=zoho        # Options: zoho, none
+ACTIVE_CRM_PROVIDER=zoho        # Options: zoho, twenty, none
 
 # === Zoho CRM Credentials ===
 ZOHO_CLIENT_ID=your_client_id
 ZOHO_CLIENT_SECRET=your_client_secret
 ZOHO_REFRESH_TOKEN=your_refresh_token
 ZOHO_API_BASE_URL=https://www.zohoapis.eu  # Region-specific
+
+# === Twenty CRM Credentials ===
+TWENTY_API_URL=https://api.twenty.com      # or self-hosted URL
+TWENTY_API_TOKEN=your_api_token
 ```
 
 ### Zoho Setup
@@ -139,6 +150,58 @@ ZOHO_API_BASE_URL=https://www.zohoapis.eu  # Region-specific
    ZOHO_CLIENT_SECRET=abc123def456
    ZOHO_REFRESH_TOKEN=1000.abc123.def456.xyz789
    ```
+
+### Twenty Setup
+
+1. **Get API Token**
+   - Go to Settings → Developers in Twenty CRM
+   - Generate a new API token
+   - Copy the token
+
+2. **Set Environment Variables**
+   ```bash
+   ACTIVE_CRM_PROVIDER=twenty
+   TWENTY_API_URL=https://api.twenty.com   # or your self-hosted URL
+   TWENTY_API_TOKEN=your_generated_token
+   ```
+
+## 🔧 Twenty CRM Plugin
+
+### Features
+
+- ✅ REST API with Bearer token auth
+- ✅ Cursor-based pagination
+- ✅ Nested field flattening (name.firstName → first_name)
+- ✅ Target relationships (noteTargets, taskTargets)
+- ✅ Async HTTP client (httpx)
+- ✅ Live facts queries
+
+### Entity Mapping
+
+| Twenty Object | Graph Label | Key Fields |
+|---------------|-------------|------------|
+| `people` | `Contact` | firstName, lastName, email, phone, jobTitle |
+| `companies` | `Account` | name, address, employees, annualRecurringRevenue |
+| `opportunities` | `Deal` | name, amount, stage, closeDate |
+| `tasks` | `Task` | title, status, dueAt, assignee |
+| `notes` | `Note` | title, body, targets |
+
+### Client (twenty/client.py)
+
+```python
+from app.integrations.twenty.client import TwentyClient
+
+# Create client
+client = TwentyClient(
+    api_url="https://api.twenty.com",
+    api_token="your_token"
+)
+
+# Fetch all records with pagination
+async with client:
+    people = await client.fetch_all("/rest/people", "people", limit=50)
+    print(f"Found {len(people)} people")
+```
 
 ## 🔧 Zoho CRM Plugin
 
@@ -377,20 +440,21 @@ async def test_zoho_connection():
 - [ ] Cross-reference with knowledge graph
 
 ### Phase 4: Additional Providers
+- [x] Twenty CRM ✅
 - [ ] Salesforce
 - [ ] HubSpot
 - [ ] Microsoft Dynamics
-- [ ] Custom REST API provider
 
 ## 📚 References
 
 - [Zoho CRM API v6 Docs](https://www.zoho.com/crm/developer/docs/api/v6/)
 - [Zoho OAuth2 Guide](https://www.zoho.com/crm/developer/docs/api/v6/oauth-overview.html)
 - [COQL Reference](https://www.zoho.com/crm/developer/docs/api/v6/COQL.html)
+- [Twenty CRM API Docs](https://twenty.com/developers/rest-api)
 
 ---
 
-**Version:** 1.0  
-**Status:** 🟡 Partially Implemented (Stubs)  
-**Next Steps:** Complete Zoho provider implementation
+**Version:** 2.0
+**Status:** 🟢 Production Ready (Zoho + Twenty)
+**Supported Providers:** Zoho CRM, Twenty CRM
 

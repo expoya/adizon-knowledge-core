@@ -207,9 +207,9 @@ class Settings(BaseSettings):
     # CRM Integration (Plugin System)
     # -------------------------------------------------------------------------
     active_crm_provider: str | None = Field(
-        default="zoho",
+        default=None,
         alias="ACTIVE_CRM_PROVIDER",
-        description="Active CRM provider: 'zoho', 'salesforce', 'hubspot', or 'none'",
+        description="Active CRM provider: 'zoho', 'twenty', or 'none'",
     )
 
     # Zoho CRM Configuration
@@ -256,6 +256,18 @@ class Settings(BaseSettings):
         default="https://analyticsapi.zoho.eu",
         alias="ZOHO_ANALYTICS_API_BASE_URL",
         description="Zoho Analytics API base URL (region-specific)",
+    )
+
+    # Twenty CRM Configuration
+    twenty_api_url: str | None = Field(
+        default=None,
+        alias="TWENTY_API_URL",
+        description="Twenty CRM API URL (e.g., https://api.twenty.com or self-hosted)",
+    )
+    twenty_api_token: str | None = Field(
+        default=None,
+        alias="TWENTY_API_TOKEN",
+        description="Twenty CRM API Token",
     )
 
 

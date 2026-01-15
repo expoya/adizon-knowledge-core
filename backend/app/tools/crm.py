@@ -24,7 +24,7 @@ async def get_crm_facts(entity_id: str, query_context: str = "") -> str:
     Nutzt die source_id aus dem Knowledge Graph um aktuelle CRM-Daten abzurufen.
     
     Args:
-        entity_id: Die CRM Entity ID (z.B. zoho_12345)
+        entity_id: Die CRM Entity ID (z.B. zoho_12345 oder twenty_uuid)
         query_context: Optionaler Kontext über die Anfrage
         
     Returns:

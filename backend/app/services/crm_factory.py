@@ -52,17 +52,14 @@ def get_crm_provider() -> Optional[CRMProvider]:
     try:
         if active_provider == "zoho":
             return _load_zoho_provider()
-        
-        # Future providers can be added here:
-        # elif active_provider == "salesforce":
-        #     return _load_salesforce_provider()
-        # elif active_provider == "hubspot":
-        #     return _load_hubspot_provider()
-        
+
+        elif active_provider == "twenty":
+            return _load_twenty_provider()
+
         else:
             raise CRMProviderError(
                 f"Unknown CRM provider: {active_provider}. "
-                f"Supported providers: zoho"
+                f"Supported providers: zoho, twenty"
             )
             
     except Exception as e:
@@ -131,6 +128,45 @@ def _load_zoho_provider() -> CRMProvider:
     except Exception as e:
         logger.warning(f"⚠️ Zoho CRM connection check error: {e}")
     
+    return provider
+
+
+def _load_twenty_provider() -> CRMProvider:
+    """
+    Loads and initializes Twenty CRM provider.
+
+    Returns:
+        Configured TwentyCRMProvider instance
+
+    Raises:
+        CRMProviderError: If Twenty credentials are missing or invalid
+    """
+    settings = get_settings()
+
+    # Validate required credentials
+    if not settings.twenty_api_url:
+        raise CRMProviderError("TWENTY_API_URL not configured")
+
+    if not settings.twenty_api_token:
+        raise CRMProviderError("TWENTY_API_TOKEN not configured")
+
+    # Import here to avoid loading integration code if not needed
+    from app.integrations.twenty import TwentyCRMProvider
+
+    logger.info("✅ Initializing Twenty CRM provider")
+
+    provider = TwentyCRMProvider(
+        api_url=settings.twenty_api_url,
+        api_token=settings.twenty_api_token,
+    )
+
+    # Verify connection
+    try:
+        if not provider.check_connection():
+            logger.warning("⚠️ Twenty CRM connection check failed")
+    except Exception as e:
+        logger.warning(f"⚠️ Twenty CRM connection check error: {e}")
+
     return provider
 
 
