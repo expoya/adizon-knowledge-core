@@ -113,9 +113,12 @@ class SourceDefinition:
         elif self.status == "optional":
             # Check if connection is configured
             if self.connection_env:
-                is_configured = bool(os.getenv(self.connection_env))
+                env_value = os.getenv(self.connection_env)
+                is_configured = bool(env_value)
                 if not is_configured:
-                    logger.debug(f"Source {self.id} not available: {self.connection_env} not set")
+                    logger.warning(f"Source {self.id} not available: env var '{self.connection_env}' not set")
+                else:
+                    logger.info(f"Source {self.id} available: env var '{self.connection_env}' is configured")
                 return is_configured
             return False
         else:
