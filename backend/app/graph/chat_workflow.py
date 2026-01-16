@@ -208,9 +208,10 @@ async def knowledge_node(state: AgentState) -> AgentState:
     
     try:
         # LLM wählt relevante Sources
+        # max_sources=4 to allow: knowledge_base + CRM + Finance + IoT
         relevant_sources = await metadata_svc.get_relevant_sources_llm(
             query=user_message,
-            max_sources=3
+            max_sources=4
         )
         
         logger.info(f"  ✅ Selected {len(relevant_sources)} sources: {[s.id for s in relevant_sources]}")
