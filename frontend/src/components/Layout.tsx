@@ -171,7 +171,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                    className="h-6 w-6 shrink-0 text-muted-foreground/50 hover:text-destructive"
                     onClick={(e) => handleDeleteClick(e, chat.id)}
                   >
                     <Trash2 className="h-3 w-3" />

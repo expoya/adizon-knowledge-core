@@ -2,13 +2,14 @@
 
 ## Overview
 
-**Adizon Knowledge Core** (auch bekannt als **Adizon Enterprise-Intelligence-System**) ist ein fortschrittliches, agentisches RAG-System (Retrieval-Augmented Generation) mit integrierter Knowledge Graph Funktionalität und SQL-Integrationsfähigkeiten. Es kombiniert drei Hauptdatenquellen:
+**Adizon Knowledge Core** (auch bekannt als **Adizon Enterprise-Intelligence-System**) ist ein fortschrittliches, agentisches RAG-System (Retrieval-Augmented Generation) mit integrierter Knowledge Graph Funktionalität, CRM-Integration und SQL-Integrationsfähigkeiten. Es kombiniert vier Hauptdatenquellen:
 
 1. **Semantische Vektorsuche** (pgvector) für Dokumenten-Chunks
-2. **Knowledge Graph** (Neo4j) für Entity-Beziehungen
-3. **Externe SQL-Datenbanken** für strukturierte Geschäftsdaten
+2. **Knowledge Graph** (Neo4j) für Entity-Beziehungen und Entity Resolution
+3. **CRM-System** (Zoho) für Live-Kundendaten, Deals und Aktivitäten
+4. **Externe SQL-Datenbanken** für strukturierte Geschäftsdaten (IoT, ERP)
 
-Das System nutzt **LangGraph** für intelligentes, autonomes Routing und Multi-Source Intelligence.
+Das System nutzt **LangGraph** mit einer **vereinfachten 3-Node Architektur** (Phase 3) für intelligentes, autonomes Routing und Multi-Source Intelligence.
 
 ## System Architecture
 
@@ -163,7 +164,7 @@ graph LR
     FINAL -.->|HTTP Callback| BE[Backend]
 ```
 
-### Chat Query Flow (Agentic RAG v2.0)
+### Chat Query Flow (Agentic RAG Phase 3 - Streamlined)
 
 ```mermaid
 sequenceDiagram
@@ -171,54 +172,53 @@ sequenceDiagram
     participant BE as Backend API
     participant WF as LangGraph Workflow
     participant ROUTER as Router Node
-    participant SQL as SQL Node
-    participant KB as Knowledge Node
-    participant CRM as CRM Node
+    participant KB as Knowledge Orchestrator
+    participant META as Metadata Service
     participant GEN as Generator Node
-    participant EXDB as External DB
     participant PG as PostgreSQL<br/>+ pgvector
     participant NEO as Neo4j
     participant ZOHO as Zoho CRM
+    participant EXDB as External DB
 
     FE->>BE: POST /api/v1/chat
     BE->>WF: Execute Workflow
-    
+
     WF->>ROUTER: Classify Intent
-    ROUTER->>ROUTER: LLM Analysis
-    
-    alt SQL Intent
-        ROUTER->>SQL: Route to SQL
-        SQL->>SQL: Get Schema
-        SQL->>SQL: Generate Query
-        SQL->>EXDB: Execute SQL
-        EXDB-->>SQL: Results
-        SQL->>GEN: SQL Context
-    else Knowledge/CRM Intent
-        ROUTER->>NEO: Search for CRM entities
-        NEO-->>ROUTER: Entity with source_id (optional)
-        ROUTER->>KB: Route to Knowledge
-        par Hybrid Search
-            KB->>PG: Vector Search
-            PG-->>KB: Chunks
+    ROUTER->>ROUTER: LLM Analysis (question/general)
+
+    alt Intent = "general" (Small Talk)
+        ROUTER->>GEN: Skip Knowledge
+    else Intent = "question" (Fachfrage)
+        ROUTER->>KB: Route to Knowledge Orchestrator
+
+        Note over KB,META: Step 1: LLM-based Source Discovery
+        KB->>META: get_relevant_sources_llm(query)
+        META-->>KB: Relevant Sources (max 3)
+
+        Note over KB,NEO: Step 2: Entity Resolution (wenn nötig)
+        KB->>KB: LLM Entity Extraction
+        KB->>NEO: Cypher Query (Fuzzy Match)
+        NEO-->>KB: Entity IDs (zoho_xxx, iot_xxx)
+
+        Note over KB: Step 3: Tool Execution
+        par Parallel Tool Calls
+            KB->>PG: search_knowledge_base()
+            PG-->>KB: Vector + Graph Results
         and
-            KB->>NEO: Graph Query
-            NEO-->>KB: Entities
+            KB->>ZOHO: get_crm_facts(entity_id)
+            ZOHO-->>KB: Live CRM Data
+        and
+            KB->>EXDB: execute_sql_query()
+            EXDB-->>KB: SQL Results
         end
-        KB->>KB: Store Knowledge Context
-        
-        alt CRM Target Found
-            KB->>CRM: Route to CRM Node
-            CRM->>ZOHO: get_crm_facts(entity_id)
-            ZOHO-->>CRM: Live CRM Data
-            CRM->>GEN: CRM + Knowledge Context
-        else No CRM Target
-            KB->>GEN: Knowledge Context Only
-        end
+
+        KB->>KB: Store tool_outputs
+        KB->>GEN: Combined Context
     end
-    
-    GEN->>GEN: Synthesize Answer
-    GEN-->>WF: Final Response
-    WF-->>BE: Result
+
+    GEN->>GEN: Synthesize Answer (temp=0.7)
+    GEN-->>WF: AIMessage
+    WF-->>BE: Final State
     BE-->>FE: ChatResponse
 ```
 
@@ -336,46 +336,42 @@ graph LR
 | POST | `/api/v1/graph/reject` | Nodes ablehnen |
 | POST | `/api/v1/graph/query` | Cypher Query ausführen |
 
-## Agentic RAG Architecture (v2.0)
+## Agentic RAG Architecture (Phase 3 - Streamlined)
 
-### LangGraph Workflow
+### LangGraph Workflow - Vereinfachte 3-Node Architektur
 
 ```mermaid
 graph TB
-    START([Start]) --> ROUTER[Router Node<br/>🔍 Intent Classification<br/>🏢 CRM Entity Detection]
-    
-    ROUTER -->|intent=sql| SQL[SQL Node<br/>🗄️ Query Generation]
-    ROUTER -->|intent=knowledge<br/>or intent=crm| KB[Knowledge Node<br/>📚 Hybrid Search]
-    
-    subgraph SQL_FLOW[SQL Processing]
-        SQL --> SCHEMA[Get Schema<br/>SQLAlchemy Inspector]
-        SCHEMA --> GENQ[LLM: Generate SQL]
-        GENQ --> EXEC[Execute Query]
+    START([Start]) --> ROUTER[Router Node<br/>Intent Classification<br/>question / general]
+
+    ROUTER -->|intent=question| KB[Knowledge Orchestrator<br/>Multi-Source Hub]
+    ROUTER -->|intent=general| GEN[Generator Node<br/>Answer Synthesis]
+
+    subgraph KB_FLOW[Knowledge Orchestrator - 4 Steps]
+        KB --> DISCOVER[Step 1: LLM Source Discovery<br/>MetadataService]
+        DISCOVER --> ENTITY[Step 2: Entity Resolution<br/>Graph + Fuzzy Match]
+        ENTITY --> TOOLS[Step 3: Tool Execution<br/>Parallel Calls]
+        TOOLS --> STORE[Step 4: Store Results<br/>tool_outputs]
     end
-    
-    subgraph KB_FLOW[Knowledge Processing]
-        KB --> VEC[Vector Search<br/>pgvector]
-        KB --> GRAPH[Graph Search<br/>Neo4j]
+
+    subgraph TOOL_CALLS[Available Tools]
+        T1[search_knowledge_base<br/>Vector + Graph]
+        T2[get_crm_facts<br/>Zoho Live Data]
+        T3[execute_sql_query<br/>External DBs]
     end
-    
-    KB -->|crm_target exists| CRM[CRM Node<br/>🏢 Live Facts]
-    KB -->|no crm_target| GEN[Generator Node<br/>✍️ Answer Synthesis]
-    
-    subgraph CRM_FLOW[CRM Processing - CONDITIONAL]
-        CRM --> ZOHO[Query Zoho CRM<br/>get_crm_facts]
-    end
-    
-    EXEC --> GEN
-    ZOHO --> GEN
-    
+
+    TOOLS --> T1
+    TOOLS --> T2
+    TOOLS --> T3
+
+    STORE --> GEN
+
     GEN --> END([Final Answer])
-    
+
     style ROUTER fill:#e1f5ff
-    style SQL fill:#fff4e1
     style KB fill:#e8f5e9
-    style CRM fill:#ffe8e8
     style GEN fill:#f3e5f5
-    style CRM_FLOW stroke-dasharray: 5 5
+    style KB_FLOW fill:#f0f9f0
 ```
 
 ### Agent State Flow
@@ -383,67 +379,84 @@ graph TB
 ```mermaid
 stateDiagram-v2
     [*] --> RouterNode: Initial State
-    
+
     state RouterNode {
         [*] --> ClassifyIntent
-        ClassifyIntent --> SearchMetadata: SQL keywords detected
-        SearchMetadata --> CheckTables: Query metadata service
-        CheckTables --> SetSQLIntent: Tables found
-        CheckTables --> SearchCRMEntities: No tables
-        SearchCRMEntities --> SetCRMIntent: CRM entity found
-        SearchCRMEntities --> SetKnowledgeIntent: No CRM entity
-        ClassifyIntent --> SetKnowledgeIntent: Knowledge keywords
+        ClassifyIntent --> SetQuestion: Fachfrage erkannt
+        ClassifyIntent --> SetGeneral: Small Talk erkannt
     }
-    
-    SetSQLIntent --> SQLNode
-    SetKnowledgeIntent --> KnowledgeNode
-    SetCRMIntent --> KnowledgeNode
-    
-    state SQLNode {
-        [*] --> GetSchema
-        GetSchema --> GenerateQuery
-        GenerateQuery --> ExecuteSQL
-        ExecuteSQL --> [*]
+
+    SetQuestion --> KnowledgeOrchestrator
+    SetGeneral --> GeneratorNode
+
+    state KnowledgeOrchestrator {
+        [*] --> SourceDiscovery
+        SourceDiscovery --> LLMSourceSelection: Query analysieren
+        LLMSourceSelection --> EntityResolution: Sources mit entity_id
+        LLMSourceSelection --> ToolExecution: Sources ohne entity_id
+
+        state EntityResolution {
+            [*] --> ExtractNames
+            ExtractNames --> GraphQuery
+            GraphQuery --> FuzzyMatch
+            FuzzyMatch --> [*]: Entity IDs
+        }
+
+        EntityResolution --> ToolExecution
+
+        state ToolExecution {
+            [*] --> ParallelCalls
+            ParallelCalls --> KnowledgeTool: knowledge_base
+            ParallelCalls --> CRMTool: crm source
+            ParallelCalls --> SQLTool: sql source
+            KnowledgeTool --> StoreOutputs
+            CRMTool --> StoreOutputs
+            SQLTool --> StoreOutputs
+        }
+
+        StoreOutputs --> [*]
     }
-    
-    state KnowledgeNode {
-        [*] --> VectorSearch
-        [*] --> GraphSearch
-        VectorSearch --> CheckCRMTarget
-        GraphSearch --> CheckCRMTarget
-        CheckCRMTarget --> RouteToCRM: crm_target exists
-        CheckCRMTarget --> RouteToGenerator: no crm_target
-    }
-    
-    state CRMNode {
-        [*] --> GetLiveFacts
-        GetLiveFacts --> FormatCRMData
-        FormatCRMData --> [*]
-    }
-    
-    SQLNode --> GeneratorNode
-    RouteToCRM --> CRMNode
-    RouteToGenerator --> GeneratorNode
-    CRMNode --> GeneratorNode
-    
+
+    KnowledgeOrchestrator --> GeneratorNode
+
     state GeneratorNode {
-        [*] --> CollectContext
-        CollectContext --> SynthesizeAnswer
+        [*] --> AssembleContext
+        AssembleContext --> CheckUncertainty
+        CheckUncertainty --> AskClarification: entity_uncertain=true
+        CheckUncertainty --> SynthesizeAnswer: confident
+        AskClarification --> [*]
         SynthesizeAnswer --> [*]
     }
-    
+
     GeneratorNode --> [*]
 ```
 
 ### Agent Tools
 
-| Tool | Purpose | Location |
-|------|---------|----------|
-| `search_knowledge_base` | Hybrid RAG (Vector+Graph) | `app/tools/knowledge.py` |
-| `execute_sql_query` | Run SELECT queries | `app/tools/sql.py` |
-| `get_sql_schema` | Inspect table schemas | `app/tools/sql.py` |
-| `get_crm_facts` | Fetch live CRM data | `app/tools/crm.py` |
-| `check_crm_status` | Check CRM availability | `app/tools/crm.py` |
+| Tool | Purpose | Location | Security |
+|------|---------|----------|----------|
+| `search_knowledge_base` | Hybrid RAG (Vector+Graph) | `app/tools/knowledge.py` | - |
+| `execute_sql_query` | Run SELECT queries | `app/tools/sql.py` | sqlparse Validation, READ-ONLY User |
+| `get_sql_schema` | Inspect table schemas | `app/tools/sql.py` | - |
+| `get_crm_facts` | Fetch live CRM data | `app/tools/crm.py` | OAuth2 Token Refresh |
+| `check_crm_status` | Check CRM availability | `app/tools/crm.py` | - |
+
+### SQL Security (Defense-in-Depth)
+
+Das SQL-Tool verwendet mehrere Sicherheitsebenen:
+
+1. **sqlparse Validation:**
+   - Nur 1 Statement (kein Statement Stacking)
+   - Nur SELECT (Whitelist)
+   - Keine UNION, INFORMATION_SCHEMA
+   - Keine SQL-Comments (-- oder /*)
+   - Keine Always-True Patterns (1=1)
+   - Keine Time-Based Injection (SLEEP, WAITFOR)
+
+2. **Database Level:**
+   - Dedizierter READ-ONLY User (`sql_tool_reader`)
+   - GRANT SELECT only
+   - Max 100 Rows Limit
 
 ### External Source Configuration
 
