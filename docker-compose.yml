@@ -100,6 +100,18 @@ services:
 
       # CORS - allow frontend
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:80,http://frontend}
+
+      # Optional: IoT Database for sensor data
+      IOT_DATABASE_URL: ${IOT_DATABASE_URL:-}
+
+      # Optional: CRM Integration
+      ACTIVE_CRM_PROVIDER: ${ACTIVE_CRM_PROVIDER:-}
+      TWENTY_API_URL: ${TWENTY_API_URL:-}
+      TWENTY_API_TOKEN: ${TWENTY_API_TOKEN:-}
+      ZOHO_CLIENT_ID: ${ZOHO_CLIENT_ID:-}
+      ZOHO_CLIENT_SECRET: ${ZOHO_CLIENT_SECRET:-}
+      ZOHO_REFRESH_TOKEN: ${ZOHO_REFRESH_TOKEN:-}
+      ZOHO_API_BASE_URL: ${ZOHO_API_BASE_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
