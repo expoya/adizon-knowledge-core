@@ -27,24 +27,28 @@ import { cn } from '@/lib/utils'
 import { useChatStore } from '@/stores/chatStore'
 
 const navItems = [
-  { to: '/upload', icon: Upload, label: 'Upload' },
-  { to: '/explorer', icon: Globe, label: 'Explorer' },
+  { to: '/', icon: MessageSquare, label: 'Chat', end: true },
+  { to: '/upload', icon: Upload, label: 'Upload', end: false },
+  { to: '/explorer', icon: Globe, label: 'Explorer', end: false },
 ]
 
 function NavItem({
   to,
   icon: Icon,
   label,
+  end = false,
   onClick,
 }: {
   to: string
   icon: React.ElementType
   label: string
+  end?: boolean
   onClick?: () => void
 }) {
   return (
     <NavLink
       to={to}
+      end={end}
       onClick={onClick}
       className={({ isActive }) =>
         cn(
@@ -133,7 +137,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
                 key={chat.id}
                 onClick={() => handleSelectChat(chat.id)}
                 className={cn(
-                  'group relative flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors',
+                  'group relative flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors',
                   isChatRoute && activeChatId === chat.id
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -141,13 +145,11 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
               >
                 <MessageSquare className="h-4 w-4 shrink-0" />
 
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm">{chat.name}</p>
-                </div>
+                <span className="min-w-0 flex-1 truncate text-sm">{chat.name}</span>
 
                 {/* Delete Button / Confirm */}
                 {deleteConfirmId === chat.id ? (
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <Button
                       size="icon"
                       variant="destructive"
