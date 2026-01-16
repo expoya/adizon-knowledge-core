@@ -387,9 +387,12 @@ async def knowledge_node(state: AgentState) -> AgentState:
                 # Check Confidence
                 if best_score >= 60:
                     logger.info(f"  🎯 Confident match: {best_type} '{best_name}' (Score: {best_score})")
-                    
+
                     # Kategorisiere beste Entity
                     if best_id.startswith("zoho_"):
+                        entity_ids["crm"] = best_id
+                        state["crm_target"] = best_id
+                    elif best_id.startswith("twenty_"):
                         entity_ids["crm"] = best_id
                         state["crm_target"] = best_id
                     elif best_id.startswith("iot_"):
@@ -403,10 +406,42 @@ async def knowledge_node(state: AgentState) -> AgentState:
                         entity_ids["crm"] = best_id
                         state["crm_target"] = best_id
                         state["entity_uncertain"] = True
+                    elif best_id.startswith("twenty_"):
+                        entity_ids["crm"] = best_id
+                        state["crm_target"] = best_id
+                        state["entity_uncertain"] = True
                     elif best_id.startswith("iot_"):
                         entity_ids["iot"] = best_id
                         state["entity_uncertain"] = True
-                
+
+                # AUTO-DISCOVERY: Find connected devices for CRM entities
+                # If we found a CRM entity but need IoT data, look for connected equipment
+                if entity_ids.get("crm") and "iot" not in entity_ids:
+                    crm_id = entity_ids["crm"]
+                    logger.info(f"  🔄 Auto-discovery: Looking for devices connected to {crm_id}")
+
+                    try:
+                        device_query = """
+                        MATCH (n {source_id: $crm_id})-[:HAS_EQUIPMENT|OWNS|MANAGES|USES]->(d)
+                        WHERE d.source_id STARTS WITH 'iot_'
+                        RETURN d.source_id as device_id, d.name as device_name
+                        LIMIT 1
+                        """
+                        device_result = await graph_store.query(
+                            device_query,
+                            parameters={"crm_id": crm_id}
+                        )
+
+                        if device_result and device_result[0].get("device_id"):
+                            device_id = device_result[0]["device_id"]
+                            device_name = device_result[0].get("device_name", "Unknown")
+                            logger.info(f"  🔄 Auto-discovered connected device: {device_id} ({device_name}) for entity {crm_id}")
+                            entity_ids["iot"] = device_id
+                        else:
+                            logger.debug(f"  ℹ️ No connected devices found for {crm_id}")
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ Auto-discovery query failed: {e}")
+
                 if entity_ids:
                     logger.info(f"  🎯 Entity IDs extracted: {entity_ids}")
                 else:
