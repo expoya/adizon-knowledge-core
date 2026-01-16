@@ -32,7 +32,9 @@ import { SafeMarkdown } from '@/components/SafeMarkdown'
  * Check if graph data is unavailable based on response metadata
  */
 function isGraphUnavailable(graphContext: string | undefined): boolean {
-  if (!graphContext) return true;
+  // Empty graph context is NOT an error - it means graph was intentionally skipped
+  // (e.g., for pure knowledge base questions that don't need entity resolution)
+  if (!graphContext) return false;
 
   const unavailableIndicators = [
     'Keine Graph-Daten verfügbar',
