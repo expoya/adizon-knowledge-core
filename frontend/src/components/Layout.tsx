@@ -137,19 +137,21 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
                 key={chat.id}
                 onClick={() => handleSelectChat(chat.id)}
                 className={cn(
-                  'group relative flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors',
+                  'group flex cursor-pointer items-center rounded-lg px-3 py-2 transition-colors',
                   isChatRoute && activeChatId === chat.id
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                 )}
               >
-                <MessageSquare className="h-4 w-4 shrink-0" />
+                <MessageSquare className="mr-2 h-4 w-4 flex-shrink-0" />
 
-                <span className="min-w-0 flex-1 truncate text-sm">{chat.name}</span>
+                <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm">
+                  {chat.name}
+                </span>
 
                 {/* Delete Button / Confirm */}
                 {deleteConfirmId === chat.id ? (
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="ml-2 flex flex-shrink-0 items-center gap-1">
                     <Button
                       size="icon"
                       variant="destructive"
@@ -171,7 +173,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-6 w-6 shrink-0 text-muted-foreground/50 hover:text-destructive"
+                    className="ml-2 h-6 w-6 flex-shrink-0 text-muted-foreground/50 hover:text-destructive"
                     onClick={(e) => handleDeleteClick(e, chat.id)}
                   >
                     <Trash2 className="h-3 w-3" />
