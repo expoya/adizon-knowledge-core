@@ -123,15 +123,18 @@ def _extract_contexts(tool_outputs: dict) -> tuple[str, str]:
     if "GRAPH WISSEN" in knowledge_result:
         parts = knowledge_result.split("=== GRAPH WISSEN")
         if len(parts) > 1:
-            graph_section = parts[1].split("===")[0]
-            # Remove the header suffix like "(Entitäten und Beziehungen) ==="
-            graph_section = graph_section.strip()
-            if graph_section.startswith("("):
-                # Skip to after the closing paren and any trailing whitespace
-                paren_end = graph_section.find(")")
-                if paren_end != -1:
-                    graph_section = graph_section[paren_end + 1:].strip()
-            graph_context = graph_section[:1000]  # Truncate
+            graph_section = parts[1]
+            # The format is: " (Entitäten und Beziehungen) ===\nActual content\n=== NEXT SECTION"
+            # Find the closing === of the header and take content after it
+            header_end = graph_section.find("===")
+            if header_end != -1:
+                # Skip past the "===" and get the actual content
+                graph_section = graph_section[header_end + 3:]
+                # Now find the next section marker if any
+                next_section = graph_section.find("===")
+                if next_section != -1:
+                    graph_section = graph_section[:next_section]
+            graph_context = graph_section.strip()[:1000]  # Truncate
     
     # Fallback to SQL results if no knowledge
     if not vector_context and not graph_context:
